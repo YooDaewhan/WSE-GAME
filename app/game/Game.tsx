@@ -1,149 +1,36 @@
 "use client";
+// 게임 클라이언트 셸: 월드 위에 HUD와 창을 띄운다.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  ITEMS, TRAITS, GATHER, LOCKED_PLACES, RECIPES, CROPS, MOBS, SPELLS, FIELDS, QUALITY, ARTISANS, PLAYER,
-  SEED_TRADES, HUNT_SEED, EXPO_SEED, CHAT_SEED, type RecipeCat, type Field,
-} from "./data.ts";
+import { ITEMS, SPELLS, FIELDS, CHAT_SEED, PLAYER, type Field } from "./data.ts";
 import * as L from "./logic.ts";
-import type { State, Equip, Batch } from "./logic.ts";
+import type { State } from "./logic.ts";
+import { Bar, Btn, Demo, HudBar, SkillSlot, type Act, type Go, type Screen } from "./ui.tsx";
+import { WorkScreen, Farm, Hunt, Character, Inventory, Skills, School, Market, Artisan, Guild, Bank, Records, Dev } from "./screens.tsx";
+import { World, ZONES, zoneById, type Zone, type Npc, type WalkReq } from "./World.tsx";
 
 const SAVE_KEY = "mcm-demo-v1", LOCK_KEY = "mcm-demo-tab";
-type Act = (fn: (d: State, now: number) => void) => void;
-type Go = (screen: Screen) => void;
-type Screen = "town" | "work" | "farm" | "hunt" | "char" | "inv" | "skills" | "school" | "market" | "artisan" | "guild" | "bank" | "records" | "dev";
-const NAV: [Screen, string, string][] = [
-  ["town", "마을", "🏘️"], ["work", "작업", "⛏️"], ["farm", "농장", "🌾"], ["hunt", "사냥터", "⚔️"],
-  ["char", "캐릭터", "🧙"], ["inv", "가방", "🎒"], ["skills", "숙련도", "📈"], ["school", "학교", "🏫"],
-  ["market", "시장", "⚖️"], ["artisan", "장인·의뢰", "📜"], ["guild", "길드", "🛡️"], ["bank", "은행", "🏦"],
-  ["records", "업적·기록", "🏆"], ["dev", "개발 옵션", "🛠️"],
-];
-const MOBILE_NAV: Screen[] = ["town", "work", "inv", "char", "hunt"];
-const Q_STYLE = ["text-zinc-400 border-zinc-600", "text-slate-200 border-slate-500", "text-emerald-300 border-emerald-600", "text-sky-300 border-sky-500", "text-amber-300 border-amber-500"];
-const n1 = (v: number) => +v.toFixed(1);
-
-// ───────── 공통 UI ─────────
-function Panel({ title, children, right }: { title?: ReactNode; children: ReactNode; right?: ReactNode }) {
-  return (
-    <section className="frame p-4">
-      {title && (
-        <>
-          <div className="mb-2 flex items-center justify-between gap-2"><h2 className="title-solid text-[15px] font-bold">{title}</h2>{right}</div>
-          <div className="divider mb-3" />
-        </>
-      )}
-      {children}
-    </section>
-  );
-}
-function Btn({ children, onClick, disabled, kind = "base", title }: { children: ReactNode; onClick?: () => void; disabled?: boolean; kind?: "base" | "gold" | "ghost"; title?: string }) {
-  const k = kind === "gold" ? "btn btn-gold" : kind === "ghost" ? "border border-transparent text-sub hover:text-ink transition-colors" : "btn";
-  return (
-    <button type="button" title={title} onClick={onClick} disabled={disabled}
-      className={`min-h-9 rounded-[4px] px-3 text-sm disabled:cursor-not-allowed disabled:opacity-35 disabled:saturate-0 ${k}`}>
-      <span className="relative">{children}</span>
-    </button>
-  );
-}
-function QTag({ q }: { q: number }) {
-  return <span className={`rounded-sm border px-1 text-[11px] leading-4 ${Q_STYLE[q]}`}>{QUALITY[q]}</span>;
-}
-function Icon({ def, q, big }: { def: string; q?: number; big?: boolean }) {
-  return (
-    <span className={`slot ${q !== undefined ? `q${q}` : ""} relative inline-flex shrink-0 items-center justify-center rounded-[5px] ${big ? "h-14 w-14 text-3xl" : "h-9 w-9 text-lg"}`} aria-hidden>
-      <span className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">{ITEMS[def].icon}</span>
-      {q !== undefined && <span className={`absolute -bottom-1 -right-1 rounded-sm border bg-bg px-0.5 text-[9px] leading-3 ${Q_STYLE[q]}`}>{QUALITY[q][0]}</span>}
-    </span>
-  );
-}
-// 앞 막대는 즉시, 뒤 잔상 막대는 늦게 줄어드는 MMO식 게이지
-function Bar({ v, max, color = "bg-gradient-to-r from-amber-700 to-gold", label, h = "h-2" }: { v: number; max: number; color?: string; label?: string; h?: string }) {
-  const pct = Math.max(0, Math.min(100, (v / max) * 100));
-  return (
-    <div className={`bar-track relative ${h} w-full overflow-hidden rounded-[2px]`} role="progressbar" aria-label={label} aria-valuenow={Math.round(v)} aria-valuemax={Math.round(max)}>
-      <div className="absolute inset-y-0 left-0 bg-white/40 transition-[width] delay-300 duration-700 ease-out" style={{ width: `${pct}%` }} />
-      <div className={`bar-fill absolute inset-y-0 left-0 ${color} transition-[width] duration-200 ease-out`} style={{ width: `${pct}%` }} />
-    </div>
-  );
-}
-function Demo({ children = "데모" }: { children?: ReactNode }) {
-  return <span className="rounded-sm border border-violet-400/30 bg-violet-500/15 px-1.5 text-[11px] text-violet-300">{children}</span>;
-}
-function Unavailable({ children }: { children: ReactNode }) {
-  return <div className="rounded border border-dashed border-line bg-black/20 p-3 text-sm text-sub">🔒 {children} <span className="text-xs">(미구현 · 사용 불가)</span></div>;
-}
-
-// ───────── 배경 장면 ─────────
-type Theme = { sky: string; ridge: [string, string]; mote: string; motes: number };
-const THEMES: Record<string, Theme> = {
-  town: { sky: "linear-gradient(180deg,#1b1f3d 0%,#4a3157 38%,#c0704a 62%,#f2b15e 70%,#1a1420 71%)", ridge: ["#1e1830", "#120e1c"], mote: "#ffd48a", motes: 22 },
-  work: { sky: "radial-gradient(ellipse at 50% 85%,#7a3a12 0%,#2a1410 35%,#0b0a10 70%)", ridge: ["#1a120e", "#0d0907"], mote: "#ff9a3c", motes: 30 },
-  farm: { sky: "linear-gradient(180deg,#5d8fc9 0%,#a8c9e0 45%,#f0d79c 66%,#24301c 67%)", ridge: ["#2d4a2a", "#1a2c18"], mote: "#fff7c2", motes: 14 },
-  hunt: { sky: "linear-gradient(180deg,#0b1a17 0%,#143229 45%,#1f4a36 64%,#06100d 65%)", ridge: ["#0e241c", "#061210"], mote: "#9dffb5", motes: 26 },
-  school: { sky: "linear-gradient(180deg,#120f2e 0%,#2d2462 50%,#6a4fb0 66%,#120f22 67%)", ridge: ["#1a1538", "#0e0b20"], mote: "#b9a6ff", motes: 24 },
-  market: { sky: "linear-gradient(180deg,#24180f 0%,#5e3b1f 45%,#d68a3c 64%,#1c130c 65%)", ridge: ["#2a1d12", "#160f09"], mote: "#ffcf7a", motes: 16 },
-  guild: { sky: "linear-gradient(180deg,#0f1424 0%,#2a2a48 50%,#7a2f2f 66%,#120c12 67%)", ridge: ["#1b1626", "#0d0a12"], mote: "#ff8a6a", motes: 20 },
-  night: { sky: "linear-gradient(180deg,#02030a 0%,#0a1230 50%,#1c2a52 66%,#05060c 67%)", ridge: ["#0b1020", "#05070f"], mote: "#cfe2ff", motes: 28 },
+const WIN: Record<Screen, [string, string, string?]> = {
+  work: ["작업장", "⚒️"], farm: ["새벽 농장", "🌾"], hunt: ["마을 숲", "🌲"], char: ["캐릭터", "🧙", "C"], inv: ["가방", "🎒", "I"],
+  skills: ["숙련도", "📈", "K"], school: ["왕립 학교", "🏫"], market: ["시장 광장", "⚖️"], artisan: ["장인 게시판", "📜"],
+  guild: ["새벽상회", "🛡️", "G"], bank: ["왕국 은행", "🏛️"], records: ["업적·기록", "🏆"], dev: ["개발 옵션", "🛠️"],
 };
-const SCENE_OF: Partial<Record<Screen, string>> = { town: "town", work: "work", farm: "farm", hunt: "hunt", school: "school", market: "market", artisan: "market", guild: "guild", bank: "market" };
-const rnd = (i: number, k: number) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); }; // 결정적 의사난수
-function Scene({ screen, night }: { screen: Screen; night: boolean }) {
-  const key = night && screen !== "work" ? "night" : SCENE_OF[screen] ?? "night";
-  const t = THEMES[key];
-  return (
-    <div className="scene" style={{ background: t.sky }} aria-hidden>
-      {key === "night" && Array.from({ length: 40 }, (_, i) => (
-        <span key={`st${i}`} className="absolute rounded-full bg-white" style={{ left: `${rnd(i, 1) * 100}%`, top: `${rnd(i, 2) * 55}%`, width: 2, height: 2, opacity: 0.3 + rnd(i, 3) * 0.7, animation: `glow-pulse ${2 + rnd(i, 4) * 3}s ease-in-out infinite` }} />
-      ))}
-      <svg className="ridge h-[46%] w-[110%]" viewBox="0 0 1200 400" preserveAspectRatio="none">
-        <path d="M0 230 L120 150 L230 210 L360 90 L470 190 L600 120 L720 200 L860 70 L990 180 L1100 130 L1200 190 L1200 400 L0 400Z" fill={t.ridge[0]} opacity="0.9" />
-        <path d="M0 300 L150 240 L300 290 L420 230 L560 300 L700 250 L840 310 L980 240 L1120 300 L1200 270 L1200 400 L0 400Z" fill={t.ridge[1]} />
-      </svg>
-      <div className="fog" />
-      {Array.from({ length: t.motes }, (_, i) => {
-        const size = 2 + rnd(i, 5) * 4;
-        return <span key={`${key}${i}`} className="mote" style={{ left: `${rnd(i, 6) * 100}%`, bottom: `${-5 - rnd(i, 7) * 10}%`, width: size, height: size, background: t.mote, boxShadow: `0 0 ${size * 3}px ${t.mote}`, animationDuration: `${9 + rnd(i, 8) * 14}s`, animationDelay: `${-rnd(i, 9) * 20}s` }} />;
-      })}
-      <div className="vignette" />
-    </div>
-  );
-}
-const makerLabel = (def: string, name?: string) => {
-  if (!name) return null;
-  const cat = ITEMS[def].cat;
-  const verb = cat === "bar" ? "제련" : cat === "gem" ? "세공" : cat === "weapon" || cat === "heart" ? "제작" : cat === "crop" || cat === "fish" ? "수확" : "제작";
-  return `${verb}: ${name}`;
-};
-function EquipLine({ e }: { e: Equip }) {
-  const d = ITEMS[e.def];
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Icon def={e.def} q={e.q} />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">
-          {L.equipName(e)} {e.gems.length > 0 && <span className="text-xs text-sub">보석 {e.gems.filter(Boolean).length}/{e.gems.length}</span>}
-          {e.locked && <span className="ml-1 text-xs text-amber-300">🔒{e.locked}</span>}
-        </div>
-        <div className="flex flex-wrap items-center gap-1 text-xs text-sub">
-          <QTag q={e.q} />
-          {e.makerName && <span>{makerLabel(e.def, e.makerName)}</span>}
-          {d.maxDur ? <span className={L.isBroken(e) ? "text-red-400" : ""}>내구도 {Math.floor(e.dur)}/{d.maxDur}{L.isBroken(e) && " · 사용 불가"}</span> : null}
-        </div>
-      </div>
-    </div>
-  );
-}
+const MENU: Screen[] = ["char", "inv", "skills", "guild", "records", "dev"];
+interface Dialog { icon: string; name: string; text: string; actions: [string, () => void][] }
 
-// ───────── 루트 ─────────
 export default function Game() {
   const [s, setS] = useState<State | null>(null);
   const [now, setNow] = useState(0);
-  const [screen, setScreen] = useState<Screen>("town");
+  const [win, setWin] = useState<Screen | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [otherTab, setOtherTab] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
   const [workTab, setWorkTab] = useState<string>("채집");
   const [returnRecipe, setReturnRecipe] = useState<string | null>(null);
-  const tabId = useRef(""); // 첫 틱에서 생성
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [pulse, setPulse] = useState(0);
+  const [pos, setPos] = useState(1250);
+  const [banner, setBanner] = useState<{ n: number; name: string } | null>(null);
+  const [walkReq, setWalkReq] = useState<WalkReq | null>(null);
+  const tabId = useRef("");
   const lastTick = useRef(0);
   const lastSave = useRef(0);
 
@@ -165,7 +52,6 @@ export default function Game() {
     const id = setInterval(() => {
       const t = Date.now();
       tabId.current ||= Math.random().toString(36);
-      // 다중 탭 보호: 한 탭만 진행
       try {
         const lock = JSON.parse(localStorage.getItem(LOCK_KEY) ?? "null");
         if (lock && lock.id !== tabId.current && t - lock.at < 3000) { setOtherTab(true); lastTick.current = t; return; }
@@ -192,120 +78,145 @@ export default function Game() {
   useEffect(() => {
     if (!s || otherTab || now - lastSave.current < 1000) return;
     lastSave.current = now;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* 저장 실패는 다음 틱에 재시도 */ }
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* 다음 틱에 재시도 */ }
   }, [s, now, otherTab]);
 
   const act: Act = (fn) => setS((p) => { if (!p) return p; const d = structuredClone(p); fn(d, Date.now()); return d; });
-  const go: Go = (x) => { setScreen(x); window.scrollTo({ top: 0 }); };
+  const go: Go = (x) => setWin(x);
+  const boost = () => { act((d, t) => L.clickBoost(d, t)); setPulse((p) => p + 1); };
+  const travel = (zoneId: string, then?: () => void) => setWalkReq({ n: Date.now(), x: zoneById(zoneId).x, then });
+  const openZone = (z: Zone) => {
+    if (z.id === "plaza") return setDialog({ icon: "⛲", name: "광장 분수", text: "맑은 물이 솟아오릅니다. 요리와 연금에 쓰이는 물은 누구나 무료로 받을 수 있습니다. (거래 불가)", actions: [["💧 맑은 물 10개 받기", () => act((d) => L.give(d, { def: "mat_water", qty: 10, q: 1 }))]] });
+    if (z.tab) setWorkTab(z.tab);
+    if (z.open) setWin(z.open);
+  };
+  const talk = (n: Npc) => {
+    if (n.id === "herald") {
+      return setDialog({ icon: n.icon, name: n.name, text: s?.starter ? "보급품은 잘 쓰고 계신가요? 광산은 서쪽, 대장간은 광장 동쪽에 있습니다." : `${n.line} 이 보급품으로 광산에서 첫 원석을 캐 보세요.`,
+        actions: s?.starter ? [] : [["🎁 시작 보급 받기 (철 원석 20 · 수지 3 · 불의 보석 원석 1)", () => act((d) => L.claimStarter(d))]] });
+    }
+    setDialog({ icon: n.icon, name: n.name, text: n.line, actions: n.open ? [[`${WIN[n.open][1]} ${WIN[n.open][0]} 열기`, () => { if (n.tab) setWorkTab(n.tab); setWin(n.open!); }]] : [] });
+  };
+
+  // 전역 단축키
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      const k = e.key.toLowerCase();
+      if (k === "escape") { setDialog(null); setWin(null); return; }
+      const hot = (Object.keys(WIN) as Screen[]).find((x) => WIN[x][2]?.toLowerCase() === k);
+      if (hot) { setWin((w) => (w === hot ? null : hot)); return; }
+      if (!s) return;
+      const live = s.combat && !s.combat.end;
+      if (k === " " && s.work && !live) { e.preventDefault(); boost(); }
+      const i = "12345".indexOf(k);
+      const slots = hotbar(s);
+      if (i >= 0 && slots[i]?.use) slots[i].use!(act);
+      if (k === "r" && live) act((d) => L.flee(d));
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  });
 
   if (!s) return <Loading />;
   const b = L.build(s, now);
   const clock = L.gameClock(s, now);
-  const goWork = (tab: string) => { setWorkTab(tab); go("work"); };
+  const live = !!s.combat && !s.combat.end;
 
   return (
-    <div className="relative min-h-screen pb-24 md:pb-6">
-      <Scene screen={screen} night={clock.night} />
+    <div className="fixed inset-0 overflow-clip bg-black text-ink">
+      <World s={s} now={now} pulse={pulse} walkReq={walkReq} onZone={openZone} onNpc={talk} onBoost={boost} onPos={setPos}
+        onNear={(name) => name && setBanner((x) => (x?.name === name ? x : { n: Date.now(), name }))} onFight={(m) => act((d) => L.startCombat(d, m))} />
+
+      {/* 지역명 배너 */}
+      {banner && <div key={banner.n} className="pointer-events-none absolute left-1/2 top-[13%] -translate-x-1/2 text-center animate-[zone-banner_2.6s_ease-out_forwards]">
+        <p className="frame-title whitespace-nowrap text-3xl font-bold sm:text-5xl [filter:drop-shadow(0_2px_6px_#000)]">{banner.name}</p>
+        <div className="mx-auto mt-1 h-px w-64 bg-gradient-to-r from-transparent via-gold to-transparent" />
+      </div>}
       <Toasts s={s} />
-      {/* HUD 상단 */}
-      <header className="sticky top-0 z-30 bg-gradient-to-b from-black/80 via-black/50 to-transparent pb-3">
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-3 pt-2">
-          <Portrait s={s} maxHp={b.maxHp} maxMp={b.maxMp} onClick={() => go("char")} />
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-sm">
-            {s.work && (
-              <button onClick={() => go("work")} className="frame flex items-center gap-2 px-3 py-1.5 text-xs transition hover:brightness-125">
-                <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full" style={{ background: `conic-gradient(var(--color-gold) ${s.work.progress * 360}deg, #1a2030 0)` }}>
-                  <span className="h-3.5 w-3.5 rounded-full bg-bg" />
-                </span>
-                <span className="max-w-32 truncate">{s.work.paused ? "일시정지 · " : ""}{L.workDef(s.work).name}</span>
-              </button>
-            )}
-            {s.combat && !s.combat.end && (
-              <button onClick={() => go("hunt")} className="frame animate-[glow-pulse_1.4s_ease-in-out_infinite] px-3 py-1.5 text-xs text-red-300">⚔️ 전투 중</button>
-            )}
-            <span className="frame flex items-center gap-1.5 px-3 py-1.5" title="골드">
-              <span className="inline-block h-4 w-4 rounded-full bg-gradient-to-br from-yellow-200 via-amber-400 to-amber-700 shadow-[0_0_8px_rgba(255,200,80,0.7)]" />
-              <b className="tabular-nums text-gold">{s.gold.toLocaleString()}</b>
-            </span>
-            <Clock night={clock.night} season={clock.season} next={clock.nextSwitch} />
+
+      {/* 좌상단: 초상화 */}
+      <div className="absolute left-2 top-2 sm:left-4 sm:top-4">
+        <Portrait s={s} maxHp={b.maxHp} maxMp={b.maxMp} onClick={() => setWin("char")} />
+        <div className="ml-[76px] mt-1 flex gap-1">
+          {s.workBuff && s.workBuff.until > now && <Buff icon="🍲" label={`${s.workBuff.name} · 채광 +5% · ${L.fmtMs(s.workBuff.until - now)}`} />}
+          {s.satiety < 30 && <Buff icon="🥣" label={`배고픔 · 작업 효율 ${Math.round(L.satietyEff(s.satiety) * 100)}%`} bad />}
+          {live && s.combat?.poison && <Buff icon="☠️" label="중독" bad />}
+        </div>
+      </div>
+
+      {/* 우상단: 미니맵 */}
+      <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-4 sm:top-4">
+        <Minimap pos={pos} night={clock.night} onPick={(z) => travel(z.id, () => openZone(z))} />
+        <div className="flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs backdrop-blur [text-shadow:0_1px_2px_#000]">
+          <span>{clock.night ? "🌙 밤" : "☀️ 낮"} · {clock.season}</span><span className="text-sub">{L.fmtMs(clock.nextSwitch)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-sm backdrop-blur">
+          <span className="inline-block h-3.5 w-3.5 rounded-full bg-gradient-to-br from-yellow-200 via-amber-400 to-amber-700 shadow-[0_0_8px_rgba(255,200,80,0.7)]" />
+          <b className="tabular-nums text-gold">{s.gold.toLocaleString()}</b>
+        </div>
+      </div>
+
+      {/* 우측: 퀘스트 추적 */}
+      <div className="absolute right-2 top-[290px] hidden w-64 sm:right-4 md:block">
+        <QuestTracker s={s} travel={travel} setWin={setWin} setWorkTab={setWorkTab} />
+      </div>
+
+      {/* 좌하단: 채팅 */}
+      <div className="absolute bottom-3 left-3 hidden w-[340px] lg:block"><ChatBox s={s} /></div>
+
+      {/* 하단 중앙: 액션바 */}
+      <div className="absolute inset-x-0 bottom-0 flex flex-col items-center pb-2">
+        <ActionBar s={s} now={now} act={act} maxHp={b.maxHp} maxMp={b.maxMp} onBoost={boost} openWork={() => setWin("work")} />
+      </div>
+
+      {/* 우하단: 메뉴 */}
+      <div className="absolute bottom-[136px] right-2 grid grid-cols-3 gap-1.5 sm:right-4 lg:bottom-3 lg:grid-cols-6">
+        {MENU.map((k) => (
+          <button key={k} onClick={() => setWin(win === k ? null : k)} title={`${WIN[k][0]}${WIN[k][2] ? ` (${WIN[k][2]})` : ""}`}
+            className={`relative flex h-11 w-11 items-center justify-center rounded-full border text-xl backdrop-blur transition hover:-translate-y-0.5 hover:border-gold hover:shadow-[0_0_14px_rgba(227,195,123,0.6)] ${win === k ? "border-gold bg-gold/25" : "border-white/15 bg-black/60"}`}>
+            {WIN[k][1]}
+            {WIN[k][2] && <span className="absolute -bottom-0.5 -right-0.5 rounded-sm bg-black px-1 text-[9px] text-gold">{WIN[k][2]}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* 창 */}
+      {win && (
+        <GameWindow key={win} title={WIN[win][0]} icon={WIN[win][1]} onClose={() => setWin(null)}>
+          {win === "work" && <WorkScreen s={s} now={now} act={act} go={go} tab={workTab} setTab={setWorkTab} returnRecipe={returnRecipe} setReturnRecipe={setReturnRecipe} />}
+          {win === "farm" && <Farm s={s} now={now} act={act} />}
+          {win === "hunt" && <Hunt s={s} now={now} act={(fn) => { act(fn); setWin(null); }} />}
+          {win === "char" && <Character s={s} now={now} act={act} />}
+          {win === "inv" && <Inventory s={s} now={now} act={act} />}
+          {win === "skills" && <Skills s={s} />}
+          {win === "school" && <School s={s} now={now} act={act} />}
+          {win === "market" && <Market s={s} act={act} />}
+          {win === "artisan" && <Artisan s={s} act={act} />}
+          {win === "guild" && <Guild s={s} act={act} go={go} />}
+          {win === "bank" && <Bank s={s} act={act} />}
+          {win === "records" && <Records s={s} />}
+          {win === "dev" && <Dev act={act} go={go} />}
+        </GameWindow>
+      )}
+      {dialog && <DialogBox d={dialog} onClose={() => setDialog(null)} />}
+      {summary && (
+        <div className="absolute left-1/2 top-1/3 w-[min(92vw,460px)] -translate-x-1/2 animate-[pop-in_400ms_ease-out]">
+          <div className="frame p-5 text-center">
+            <p className="frame-title mb-2 text-xl">돌아오신 걸 환영합니다</p>
+            <p className="text-sm">{summary}</p>
+            <div className="mt-4"><Btn kind="gold" onClick={() => setSummary(null)}>확인</Btn></div>
           </div>
         </div>
-      </header>
-
+      )}
       {otherTab && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="frame max-w-sm p-6 text-center">
             <p className="frame-title mb-2 text-lg">다른 탭에서 접속 중</p>
             <p className="text-sm text-sub">진행이 중복되지 않도록 이 탭은 멈춰 있습니다. 다른 탭을 닫으면 자동으로 이어집니다.</p>
           </div>
         </div>
       )}
-
-      <div className="mx-auto grid max-w-[1400px] gap-4 px-3 md:grid-cols-[76px_1fr] xl:grid-cols-[76px_1fr_300px]">
-        <nav className="hidden md:block" aria-label="이동">
-          <ul className="sticky top-24 space-y-1.5">
-            {NAV.map(([k, label, icon]) => (
-              <li key={k}>
-                <button onClick={() => go(k)} aria-current={screen === k ? "page" : undefined} title={label}
-                  className={`group relative flex w-full flex-col items-center gap-0.5 rounded-md border py-1.5 text-[10px] transition-all duration-200 ${screen === k ? "border-gold/70 bg-gradient-to-b from-gold/25 to-gold/5 text-gold shadow-[0_0_16px_-4px_rgba(227,195,123,0.8)]" : "border-white/5 bg-black/40 text-sub hover:-translate-y-0.5 hover:border-mana/50 hover:text-ink"}`}>
-                  <span className="text-xl transition-transform duration-200 group-hover:scale-110" aria-hidden>{icon}</span>{label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <main key={screen} className="min-w-0 space-y-4 animate-[screen-in_260ms_ease-out]">
-          <ScreenTitle screen={screen} />
-          {summary && (
-            <div className="frame flex items-start justify-between gap-3 border-gold/60 p-3 text-sm animate-[pop-in_400ms_ease-out]">
-              <div><b className="text-gold">복귀 요약</b> · {summary}</div>
-              <Btn kind="ghost" onClick={() => setSummary(null)}>닫기</Btn>
-            </div>
-          )}
-          {screen === "town" && <Town s={s} act={act} go={go} goWork={goWork} />}
-          {screen === "work" && <WorkScreen s={s} now={now} act={act} go={go} tab={workTab} setTab={setWorkTab} returnRecipe={returnRecipe} setReturnRecipe={setReturnRecipe} />}
-          {screen === "farm" && <Farm s={s} now={now} act={act} />}
-          {screen === "hunt" && <Hunt s={s} now={now} act={act} />}
-          {screen === "char" && <Character s={s} now={now} act={act} />}
-          {screen === "inv" && <Inventory s={s} now={now} act={act} />}
-          {screen === "skills" && <Skills s={s} />}
-          {screen === "school" && <School s={s} now={now} act={act} />}
-          {screen === "market" && <Market s={s} act={act} />}
-          {screen === "artisan" && <Artisan s={s} act={act} />}
-          {screen === "guild" && <Guild s={s} act={act} go={go} />}
-          {screen === "bank" && <Bank s={s} act={act} />}
-          {screen === "records" && <Records s={s} />}
-          {screen === "dev" && <Dev act={act} go={go} />}
-          <div className="space-y-4 xl:hidden"><QuestTracker s={s} go={go} goWork={goWork} /><ActivityLog s={s} /></div>
-        </main>
-
-        <aside className="hidden space-y-4 xl:block">
-          <div className="sticky top-24 space-y-4">
-            <QuestTracker s={s} go={go} goWork={goWork} />
-            <ActivityLog s={s} />
-            <Chat open onToggle={() => {}} />
-          </div>
-        </aside>
-      </div>
-
-      {/* 모바일 하단 탐색 + 접는 채팅 */}
-      <div className="fixed bottom-20 right-3 z-30 xl:hidden">
-        {chatOpen && <div className="mb-2 w-[min(92vw,340px)] animate-[pop-in_220ms_ease-out]"><Chat open onToggle={() => setChatOpen(false)} /></div>}
-        <button className="btn ml-auto block rounded-full px-3 py-2 text-sm" onClick={() => setChatOpen(!chatOpen)} aria-expanded={chatOpen}>💬 지역 채팅</button>
-      </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-gold/30 bg-gradient-to-t from-black to-black/85 backdrop-blur md:hidden" aria-label="주요 이동">
-        {MOBILE_NAV.map((k) => {
-          const [, label, icon] = NAV.find((x) => x[0] === k)!;
-          return (
-            <button key={k} onClick={() => go(k)} aria-current={screen === k ? "page" : undefined}
-              className={`relative flex min-h-16 flex-col items-center justify-center text-xs transition-colors ${screen === k ? "text-gold" : "text-sub"}`}>
-              {screen === k && <span className="absolute inset-x-4 top-0 h-0.5 bg-gold shadow-[0_0_10px_var(--color-gold)]" />}
-              <span className={`text-xl transition-transform duration-200 ${screen === k ? "scale-110 drop-shadow-[0_0_8px_rgba(227,195,123,0.8)]" : ""}`} aria-hidden>{icon}</span>{label}
-            </button>
-          );
-        })}
-      </nav>
     </div>
   );
 }
@@ -313,10 +224,10 @@ export default function Game() {
 // ───────── HUD 부품 ─────────
 function Loading() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg">
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,#1a2236,#05070c)]">
       <div className="h-14 w-14 rounded-full border-2 border-gold/20 border-t-gold animate-[spin-slow_1s_linear_infinite]" />
-      <p className="frame-title text-2xl animate-[title-in_1.2s_ease-out_both]">MCM 왕국</p>
-      <p className="text-xs text-sub">마을로 가는 중…</p>
+      <p className="frame-title text-4xl animate-[title-in_1.2s_ease-out_both]">MCM 왕국</p>
+      <p className="text-xs text-sub">월드에 접속하는 중…</p>
     </div>
   );
 }
@@ -324,1151 +235,218 @@ function Portrait({ s, maxHp, maxMp, onClick }: { s: State; maxHp: number; maxMp
   const top = (Object.keys(FIELDS) as Field[]).map((f) => [f, L.fieldLv(s, f)] as const).sort((a, b) => b[1] - a[1])[0];
   const title = top[1] > 1 ? `${FIELDS[top[0]].replace(" 스킬", "")} Lv.${top[1]}` : "초보 모험가";
   return (
-    <div className="flex items-center gap-3">
-      <button onClick={onClick} aria-label="캐릭터 정보" className="relative h-16 w-16 shrink-0 rounded-full p-[3px] transition hover:scale-105" style={{ background: "conic-gradient(from 200deg,#fff2c5,#c99a45,#6b4a1c,#c99a45,#fff2c5)" }}>
-        <span className="flex h-full w-full items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_30%,#3a4566,#0b0f19)] text-3xl">🧙</span>
-        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-gold/60 bg-bg px-1.5 text-[10px] text-gold">새벽</span>
+    <div className="flex items-center gap-2">
+      <button onClick={onClick} aria-label="캐릭터 정보 (C)" className="relative h-[68px] w-[68px] shrink-0 rounded-full p-[3px] shadow-[0_0_20px_rgba(0,0,0,0.8)] transition hover:scale-105" style={{ background: "conic-gradient(from 200deg,#fff2c5,#c99a45,#6b4a1c,#c99a45,#fff2c5)" }}>
+        <span className="flex h-full w-full items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_30%,#3a4566,#0b0f19)] text-4xl">🧙</span>
       </button>
-      <div className="w-44 space-y-1 sm:w-56">
-        <div className="flex items-baseline gap-2"><span className="frame-title text-sm">새벽</span><span className="text-[11px] text-sub">{title}</span><Demo>데모</Demo></div>
+      <div className="w-36 space-y-1 rounded-r-lg bg-gradient-to-r from-black/70 to-transparent py-1 pl-1 pr-4 sm:w-60 sm:pr-6">
+        <div className="flex items-baseline gap-2 [text-shadow:0_1px_2px_#000]"><span className="frame-title text-base">새벽</span><span className="hidden text-[11px] text-sub sm:inline">{title}</span><span className="hidden sm:inline"><Demo>데모</Demo></span></div>
         <HudBar label="HP" v={s.hp} max={maxHp} color="bg-gradient-to-r from-red-800 via-red-500 to-rose-400" />
         <HudBar label="MP" v={s.mp} max={maxMp} color="bg-gradient-to-r from-blue-800 via-sky-500 to-cyan-300" />
-        <HudBar label="포만감" v={s.satiety} max={100} color="bg-gradient-to-r from-amber-800 via-amber-500 to-yellow-300" small />
+        <div title={`포만감 ${Math.floor(s.satiety)}/100`}><HudBar label="포만감" v={s.satiety} max={100} color="bg-gradient-to-r from-amber-800 via-amber-500 to-yellow-300" small /></div>
       </div>
     </div>
   );
 }
-function HudBar({ label, v, max, color, small }: { label: string; v: number; max: number; color: string; small?: boolean }) {
-  return (
-    <div className="relative">
-      <Bar v={v} max={max} color={color} label={label} h={small ? "h-2" : "h-3.5"} />
-      {!small && <span className="absolute inset-0 flex items-center justify-between px-1.5 text-[10px] font-semibold leading-none text-white [text-shadow:0_1px_2px_#000]"><span>{label}</span><span className="tabular-nums">{Math.floor(v)} / {Math.floor(max)}</span></span>}
-    </div>
-  );
+function Buff({ icon, label, bad }: { icon: string; label: string; bad?: boolean }) {
+  return <span title={label} className={`flex h-7 w-7 items-center justify-center rounded border text-sm ${bad ? "border-red-500/70 bg-red-950/70" : "border-gold/50 bg-black/70"}`}>{icon}</span>;
 }
-function Clock({ night, season, next }: { night: boolean; season: string; next: number }) {
+function Minimap({ pos, night, onPick }: { pos: number; night: boolean; onPick: (z: Zone) => void }) {
+  const R = 700;
   return (
-    <span className="frame flex items-center gap-2 px-2 py-1" title={`다음 전환까지 ${L.fmtMs(next)}`}>
-      <span className={`relative h-8 w-8 overflow-hidden rounded-full border border-gold/40 ${night ? "bg-gradient-to-b from-indigo-950 to-slate-900" : "bg-gradient-to-b from-sky-400 to-amber-200"}`}>
-        <span className="absolute inset-0 flex items-center justify-center text-base animate-[bob_3s_ease-in-out_infinite]">{night ? "🌙" : "☀️"}</span>
-      </span>
-      <span className="leading-tight"><span className="block text-xs">{night ? "밤" : "낮"} · {season}</span><span className="block text-[10px] text-sub">{L.fmtMs(next)} 후 전환</span></span>
-    </span>
-  );
-}
-const SCREEN_INFO: Record<Screen, [string, string]> = {
-  town: ["새벽 마을", "MCM 왕국 변경의 작은 마을"], work: ["작업장", "광산 · 낚시터 · 공방"], farm: ["새벽 농장", "4×4 밭과 닭장"],
-  hunt: ["마을 숲", "자동 전투 · 스킬과 포션으로 개입"], char: ["캐릭터", "장비 · 능력치 · 특성"], inv: ["가방", "제작 배치와 제작자 각인"],
-  skills: ["숙련도", "오래 할수록 실제로 능숙해진다"], school: ["왕립 마을 학교", "오늘의 수업 · 스크롤 해석실"], market: ["시장 광장", "거래소 · 왕국 상점"],
-  artisan: ["장인 명부", "공방 등록 · 제작 의뢰"], guild: ["새벽상회", "납품 · 토벌 · 박람회"], bank: ["왕국 은행", "보관함 · 거래 기록"],
-  records: ["업적과 기록", "대표 작품 · 달성"], dev: ["개발 옵션", "빠른 데모용 도구"],
-};
-function ScreenTitle({ screen }: { screen: Screen }) {
-  const [t, sub] = SCREEN_INFO[screen];
-  return (
-    <div className="flex items-end gap-3 pt-1">
-      <h1 className="frame-title text-2xl font-bold [text-shadow:0_2px_12px_rgba(227,195,123,0.25)] animate-[title-in_600ms_ease-out_both] sm:text-3xl">{t}</h1>
-      <span className="pb-1 text-xs text-sub">{sub}</span>
-      <span className="mb-2 h-px flex-1 bg-gradient-to-r from-gold/50 to-transparent" />
+    <div className="relative h-24 w-24 overflow-hidden rounded-full border-2 border-gold/70 shadow-[0_0_0_3px_rgba(0,0,0,0.6),0_0_24px_rgba(0,0,0,0.8)] sm:h-44 sm:w-44 md:h-40 md:w-40 lg:h-44 lg:w-44"
+      style={{ background: night ? "radial-gradient(circle,#1a2a2a,#0a1210)" : "radial-gradient(circle,#5d7d44,#2c4425)" }}>
+      <div className="absolute inset-x-0 top-1/2 h-3 -translate-y-1/2 bg-[#b39363]/60" />
+      {ZONES.map((z, i) => {
+        const dx = (z.x - pos) / R;
+        if (Math.abs(dx) > 1.05) return null;
+        return (
+          <button key={z.id} onClick={() => onPick(z)} title={z.name} className="absolute -translate-x-1/2 -translate-y-1/2 text-base transition hover:scale-125"
+            style={{ left: `${50 + dx * 46}%`, top: `${50 + (i % 2 ? -1 : 1) * 16}%` }}>{z.icon}</button>
+        );
+      })}
+      <span className="absolute left-1/2 top-1/2 h-0 w-0 -translate-x-1/2 -translate-y-1/2 border-x-[6px] border-b-[11px] border-x-transparent border-b-sky-300 [filter:drop-shadow(0_0_4px_#62d2ff)]" />
+      <span className="pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(98,210,255,0.18)_40deg,transparent_60deg)] animate-[spin-slow_6s_linear_infinite]" />
+      <span className="absolute left-1/2 top-1 -translate-x-1/2 text-[10px] font-bold text-gold">N</span>
     </div>
   );
 }
 function Toasts({ s }: { s: State }) {
-  const [base] = useState(() => s.logN ?? 0); // 접속 후 생긴 알림만 띄움
+  const [base] = useState(() => s.logN ?? 0); // 접속 후 생긴 알림만
   const n = s.logN ?? 0, fresh = Math.min(3, n - base);
   return (
-    <div className="pointer-events-none fixed left-1/2 top-24 z-40 w-[min(92vw,420px)] -translate-x-1/2 space-y-2" aria-hidden>
+    <div className="pointer-events-none absolute left-1/2 top-[22%] w-[min(92vw,460px)] -translate-x-1/2 space-y-1" aria-live="polite">
       {s.log.slice(0, Math.max(0, fresh)).map((x, i) => (
-        <div key={n - i} className="frame border-gold/50 px-4 py-2 text-center text-sm shadow-[0_0_30px_-8px_rgba(227,195,123,0.6)] animate-[toast_3.6s_ease-out_forwards]">
-          <span className="text-gold">◆</span> {x}
-        </div>
+        <p key={n - i} className="text-center text-sm font-semibold text-amber-100 [text-shadow:0_0_8px_#000,0_1px_2px_#000] animate-[toast_3.6s_ease-out_forwards]">{x}</p>
       ))}
     </div>
   );
 }
-// 가이드 퀘스트: 사양 2절의 세로 단면 흐름
-function QuestTracker({ s, go, goWork }: { s: State; go: Go; goWork: (t: string) => void }) {
+function QuestTracker({ s, travel, setWin, setWorkTab }: { s: State; travel: (z: string, then?: () => void) => void; setWin: (w: Screen) => void; setWorkTab: (t: string) => void }) {
   const w = s.equips.find((e) => e.id === s.weapon);
+  const at = (zone: string, win?: Screen, tab?: string) => () => travel(zone, () => { if (tab) setWorkTab(tab); if (win) setWin(win); });
   const steps: [string, boolean, () => void][] = [
-    ["시작 보급 수령", s.starter, () => go("town")],
-    ["철 원석 채광", s.stats.mined >= 1, () => goWork("채집")],
-    ["철 주괴 제련", (s.runs.recipe_bar_iron ?? 0) >= 1, () => goWork("제련")],
-    ["철검 제작", (s.runs.recipe_iron_sword ?? 0) >= 1, () => goWork("제작")],
-    ["불의 보석 세공", (s.runs.recipe_gem_fire ?? 0) >= 1, () => goWork("세공")],
-    ["무기에 보석 장착", !!w?.gems.some(Boolean), () => go("char")],
-    ["생선구이 요리", (s.runs.recipe_fish ?? 0) >= 1, () => goWork("요리")],
-    ["첫 사냥 승리", s.stats.kills >= 1, () => go("hunt")],
-    ["학교 수업 듣기", s.stats.lessons >= 1, () => go("school")],
-    ["공개 주문 납품", s.orders.some((o) => o.id === "order_public_01" && o.state === "완료"), () => go("artisan")],
-    ["길드 보급 기여", s.guild.myFish + s.guild.myPotion >= 1, () => go("guild")],
+    ["왕국 보급관에게 보급 받기", s.starter, () => travel("plaza")],
+    ["광산에서 철 원석 채광", s.stats.mined >= 1, at("mine", "work", "채집")],
+    ["대장간에서 철 주괴 제련", (s.runs.recipe_bar_iron ?? 0) >= 1, at("forge", "work", "제련")],
+    ["철검 제작", (s.runs.recipe_iron_sword ?? 0) >= 1, at("forge", "work", "제작")],
+    ["불의 보석 세공", (s.runs.recipe_gem_fire ?? 0) >= 1, at("forge", "work", "세공")],
+    ["무기에 보석 장착", !!w?.gems.some(Boolean), () => setWin("char")],
+    ["생선구이 요리", (s.runs.recipe_fish ?? 0) >= 1, at("market", "work", "요리")],
+    ["마을 숲에서 첫 사냥", s.stats.kills >= 1, at("forest", "hunt")],
+    ["학교에서 수업 듣기", s.stats.lessons >= 1, at("school", "school")],
+    ["이안의 공개 주문 납품", s.orders.some((o) => o.id === "order_public_01" && o.state === "완료"), at("board", "artisan")],
+    ["새벽상회 보급 기여", s.guild.myFish + s.guild.myPotion >= 1, at("guild", "guild")],
   ];
   const cur = steps.findIndex((x) => !x[1]);
-  const done = steps.filter((x) => x[1]).length;
   return (
-    <Panel title="가이드 퀘스트" right={<span className="text-xs text-sub">{done}/{steps.length}</span>}>
-      <Bar v={done} max={steps.length} label="퀘스트 진행" />
-      <ul className="mt-3 space-y-1 text-sm">
-        {steps.map(([name, ok, onGo], i) => (i < cur - 1 || i > cur + 2) && cur !== -1 ? null : (
-          <li key={name}>
-            <button onClick={onGo} className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left transition ${i === cur ? "bg-gold/10 text-ink ring-1 ring-gold/40 animate-[glow-pulse_2.4s_ease-in-out_infinite]" : ok ? "text-sub line-through decoration-gold/50" : "text-sub hover:text-ink"}`}>
-              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border text-[10px] ${ok ? "border-gold bg-gold text-bg" : i === cur ? "border-gold text-gold" : "border-line"}`}>{ok ? "✓" : i === cur ? "!" : ""}</span>
-              {name}{i === cur && <span className="ml-auto text-[10px] text-gold">이동 ›</span>}
-            </button>
-          </li>
-        ))}
-        {cur === -1 && <li className="text-center text-gold">모든 가이드를 완료했습니다!</li>}
-      </ul>
-    </Panel>
-  );
-}
-function ActivityLog({ s }: { s: State }) {
-  return (
-    <Panel title="알림">
-      <ul className="max-h-52 space-y-1 overflow-y-auto text-xs text-sub" aria-live="polite">
-        {s.log.length ? s.log.slice(0, 15).map((x, i) => <li key={`${(s.logN ?? 0) - i}`} className={i === 0 ? "text-ink animate-[pop-in_300ms_ease-out]" : ""}><span className="text-gold/60">›</span> {x}</li>) : <li>아직 소식이 없습니다.</li>}
-      </ul>
-    </Panel>
-  );
-}
-function Chat({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const [msgs, setMsgs] = useState(CHAT_SEED);
-  const [text, setText] = useState("");
-  if (!open) return null;
-  return (
-    <Panel title={<>지역 채팅 <Demo>시드 메시지</Demo></>} right={<button className="text-xs text-sub xl:hidden" onClick={onToggle}>접기</button>}>
-      <ul className="mb-2 max-h-40 space-y-1 overflow-y-auto text-xs">
-        {msgs.map((m, i) => <li key={i}><b className="text-mana">[{m.who}]</b> {m.text}</li>)}
-      </ul>
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (text.trim()) { setMsgs([...msgs, { who: PLAYER.name, text: text.trim() }]); setText(""); } }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={100} placeholder="메시지 (100자)" aria-label="채팅 입력"
-          className="min-w-0 flex-1 rounded border border-line bg-black/40 px-2 py-1 text-sm focus:border-mana/60" />
-        <Btn>전송</Btn>
-      </form>
-    </Panel>
-  );
-}
-
-// ───────── 마을: 월드맵 ─────────
-const MAP_NODES: [string, string, string, number, number, Screen, string?][] = [
-  ["광산", "⛏️", "구리·철 채광", 14, 26, "work", "채집"], ["학교", "🏫", "수업·스크롤", 50, 15, "school"],
-  ["사냥터", "🌲", "마을 숲", 86, 24, "hunt"], ["공방", "🔨", "제련·제작", 30, 47, "work", "제작"],
-  ["장인 명부", "📜", "공방·의뢰", 44, 33, "artisan"], ["길드", "🛡️", "납품·토벌", 73, 43, "guild"],
-  ["시장", "⚖️", "거래소", 51, 57, "market"], ["은행", "🏦", "보관함", 65, 68, "bank"],
-  ["낚시터", "🎣", "마을 강", 19, 77, "work", "채집"], ["농장", "🌾", "밭·닭장", 84, 77, "farm"],
-];
-function Town({ s, act, go, goWork }: { s: State; act: Act; go: Go; goWork: (t: string) => void }) {
-  return (
-    <>
-      {!s.starter && (
-        <div className="frame flex flex-col gap-4 border-gold/50 p-5 animate-[pop-in_500ms_ease-out] sm:flex-row sm:items-center">
-          <span className="slot q4 flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-5xl">👑</span>
-          <div className="flex-1">
-            <p className="frame-title text-lg">왕국 보급관</p>
-            <p className="mt-1 text-sm text-ink/90">“새벽님, MCM 왕국에 오신 걸 환영합니다. 이 보급품으로 광산에서 첫 원석을 캐 보세요. 장인은 오래 손을 쓴 사람만이 될 수 있답니다.”</p>
-          </div>
-          <Btn kind="gold" onClick={() => act((d) => L.claimStarter(d))}>🎁 시작 보급 수령</Btn>
-        </div>
-      )}
-      <section className="frame overflow-hidden p-0">
-        <div className="relative aspect-[3/4] w-full sm:aspect-[16/10]" style={{ background: "radial-gradient(ellipse at 20% 30%,#4b5a34 0,transparent 35%),radial-gradient(ellipse at 80% 20%,#22402c 0,transparent 35%),radial-gradient(ellipse at 70% 80%,#6b6a3a 0,transparent 30%),radial-gradient(ellipse at 50% 50%,#3d4a2b,#1c2416 80%)" }}>
-          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-            <path d="M-2 70 C 15 66, 22 82, 35 86 S 60 92, 102 88" fill="none" stroke="#3a7fb8" strokeWidth="3.2" opacity="0.8" />
-            <path d="M-2 70 C 15 66, 22 82, 35 86 S 60 92, 102 88" fill="none" stroke="#9fd6ff" strokeWidth="0.6" strokeDasharray="2 3" opacity="0.6"><animate attributeName="stroke-dashoffset" from="0" to="-50" dur="6s" repeatCount="indefinite" /></path>
-            <path d="M14 26 L30 47 L44 33 L50 15 M30 47 L51 57 L73 43 L86 24 M51 57 L65 68 L84 77 M30 47 L19 77" fill="none" stroke="#d7b981" strokeWidth="0.7" strokeDasharray="1.5 1.2" opacity="0.55" />
-          </svg>
-          {/* 떠다니는 구름 그림자 */}
-          <div className="pointer-events-none absolute -left-1/4 top-[10%] h-24 w-72 rounded-full bg-black/25 blur-2xl animate-[drift_30s_linear_infinite_alternate]" />
-          <div className="pointer-events-none absolute left-1/3 top-[55%] h-20 w-60 rounded-full bg-black/20 blur-2xl animate-[drift_45s_linear_infinite_alternate-reverse]" />
-          <div className="absolute left-3 top-3 rounded-sm border border-gold/40 bg-black/60 px-3 py-1 text-xs"><span className="frame-title">새벽 마을</span> <span className="text-sub">· 지도</span></div>
-          <div className="absolute bottom-3 right-3 text-3xl opacity-60 animate-[spin-slow_60s_linear_infinite]" aria-hidden>🧭</div>
-          {MAP_NODES.map(([name, icon, desc, x, y, scr, tab], i) => {
-            const busy = s.work && tab && ((tab === "채집" && s.work.kind === "gather") || (tab === "제작" && s.work.kind === "recipe"));
-            return (
-              <button key={name} onClick={() => (tab ? goWork(tab) : go(scr))} style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${i * 60}ms` }}
-                className="group absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center animate-[pop-in_500ms_ease-out_both]">
-                <span className="relative flex h-11 w-11 items-center justify-center rounded-full border-2 border-gold/70 bg-[radial-gradient(circle_at_40%_30%,#3a3220,#120e08)] text-xl shadow-[0_4px_14px_rgba(0,0,0,0.7)] transition-all duration-200 group-hover:-translate-y-1 group-hover:scale-110 group-hover:border-gold group-hover:shadow-[0_0_22px_rgba(227,195,123,0.8)] sm:h-14 sm:w-14 sm:text-2xl">
-                  {icon}
-                  {busy && <span className="absolute inset-0 rounded-full border-2 border-mana animate-[ring-out_1.4s_ease-out_infinite]" />}
-                </span>
-                <span className="mt-1 whitespace-nowrap rounded-sm bg-black/70 px-1.5 text-[11px] font-semibold text-ink [text-shadow:0_1px_2px_#000] sm:text-xs">{name}</span>
-                <span className="hidden whitespace-nowrap text-[10px] text-sub opacity-0 transition-opacity group-hover:opacity-100 sm:block">{desc}</span>
+    <div className="[text-shadow:0_1px_3px_#000,0_0_6px_#000]">
+      <p className="mb-1 flex items-center justify-between border-b border-gold/40 pb-1 text-xs"><span className="font-[family-name:var(--font-title)] text-gold">◆ 가이드 퀘스트</span><span className="text-sub">{steps.filter((x) => x[1]).length}/{steps.length}</span></p>
+      {cur === -1 ? <p className="text-sm text-gold">모든 가이드 완료!</p> : (
+        <ul className="space-y-1 text-[13px]">
+          {steps.slice(Math.max(0, cur - 1), cur + 3).map(([name, ok, onGo]) => (
+            <li key={name}>
+              <button onClick={onGo} className={`w-full text-left transition hover:text-gold ${ok ? "text-sub line-through" : name === steps[cur][0] ? "font-semibold text-amber-200" : "text-ink/80"}`}>
+                {ok ? "✔" : name === steps[cur][0] ? "▶" : "·"} {name}
               </button>
-            );
-          })}
-        </div>
-      </section>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Panel title="마을 우물">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-sub">맑은 물 무료 수령 (거래 불가) · 보유 {L.count(s, "mat_water")}</span>
-            <Btn onClick={() => act((d) => L.give(d, { def: "mat_water", qty: 10, q: 1 }))}>💧 10개 받기</Btn>
-          </div>
-        </Panel>
-        <section className="frame relative overflow-hidden p-4">
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(120,40,160,0.35),rgba(20,120,80,0.25),rgba(120,40,160,0.35))] bg-[length:200%_100%] animate-[drift_12s_linear_infinite_alternate]" />
-          <div className="relative">
-            <p className="text-[11px] tracking-widest text-mana">MCM 사건 · 이번 주</p>
-            <p className="frame-title text-lg">독안개 토벌 주간</p>
-            <p className="text-sm text-ink/90">늪의 군주가 깨어났습니다. 해독 재료와 요리 수요가 늘어납니다.</p>
-            <p className="mt-1 text-xs text-sub">방송 시청은 필수가 아니며 기간 안에 언제든 참여할 수 있습니다.</p>
-          </div>
-        </section>
-      </div>
-    </>
-  );
-}
-
-// ───────── 작업 ─────────
-const WORK_TABS = ["채집", "제련", "세공", "제작", "요리", "연금"] as const;
-function WorkScreen({ s, now, act, go, tab, setTab, returnRecipe, setReturnRecipe }: {
-  s: State; now: number; act: Act; go: Go; tab: string; setTab: (t: string) => void; returnRecipe: string | null; setReturnRecipe: (r: string | null) => void;
-}) {
-  return (
-    <>
-      <ActiveWork s={s} now={now} act={act} />
-      {returnRecipe && tab !== RECIPES[returnRecipe].cat && (
-        <div className="flex items-center justify-between rounded-lg border border-gold/50 bg-gold/10 p-2 text-sm">
-          <span>재료를 모은 뒤 <b>{ITEMS[RECIPES[returnRecipe].out].name}</b> 레시피로 돌아갈 수 있습니다.</span>
-          <Btn kind="gold" onClick={() => { setTab(RECIPES[returnRecipe].cat); setReturnRecipe(null); }}>레시피로 돌아가기</Btn>
-        </div>
-      )}
-      <div className="flex flex-wrap gap-1" role="tablist">
-        {WORK_TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className={`rounded-lg px-3 py-1.5 text-sm ${tab === t ? "bg-gold/15 text-gold" : "text-sub hover:bg-raised"}`}>{t}</button>
-        ))}
-      </div>
-      {tab === "채집" ? <GatherList s={s} act={act} /> : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {Object.keys(RECIPES).filter((r) => RECIPES[r].cat === (tab as RecipeCat)).map((r) => (
-            <RecipeCard key={r} id={r} s={s} act={act} onFetch={(def) => {
-              setReturnRecipe(r);
-              const ore = Object.values(GATHER).find((g) => g.out === def);
-              const rec = Object.keys(RECIPES).find((x) => RECIPES[x].out === def && s.recipes.includes(x));
-              if (ore) setTab("채집"); else if (rec) setTab(RECIPES[rec].cat); else if (ITEMS[def].cat === "crop") go("farm"); else go("market");
-            }} />
+            </li>
           ))}
-        </div>
-      )}
-    </>
-  );
-}
-function ActiveWork({ s, now, act }: { s: State; now: number; act: Act }) {
-  const [pulse, setPulse] = useState(0);
-  const w = s.work;
-  if (!w) return <Panel title="현재 작업"><p className="text-sm text-sub">진행 중인 작업이 없습니다. 아래에서 대상을 골라 시작하세요. 한 번에 하나의 주요 작업만 수행합니다.</p></Panel>;
-  const def = L.workDef(w), sp = L.workSpeed(s, w, now, true), cyc = L.cycleMs(s, w, now, true);
-  const key = w.target, info = L.levelInfo(s.xp[key] ?? 0);
-  const out = w.kind === "gather" ? GATHER[w.target].out : RECIPES[w.target].out;
-  const tool = w.kind === "gather" ? s.equips.find((e) => e.def === GATHER[w.target].tool && !L.isBroken(e)) : null;
-  return (
-    <Panel title={<>현재 작업 · {def.name}</>} right={<span className="text-xs text-sub">{w.done}{w.repeat ? `/${w.repeat}` : ""}회 완료</span>}>
-      <div className="grid gap-5 sm:grid-cols-[220px_1fr]">
-        <div className="relative mx-auto flex w-[220px] flex-col items-center">
-          <button
-            onClick={() => { act((d, t) => L.clickBoost(d, t)); setPulse((p) => p + 1); }}
-            disabled={w.paused}
-            aria-label={`${ITEMS[out].name} 작업 대상 두드리기: 3초간 작업 속도 +20%`}
-            className="group relative flex h-[200px] w-[200px] items-center justify-center rounded-full transition-transform duration-150 active:scale-95 disabled:opacity-50"
-          >
-            {/* 진행 링 */}
-            <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100" aria-hidden>
-              <circle cx="50" cy="50" r="45" fill="none" stroke="#141a28" strokeWidth="6" />
-              <circle cx="50" cy="50" r="45" fill="none" stroke={sp.boosted ? "url(#gb)" : "url(#gg)"} strokeWidth="6" strokeLinecap="round"
-                strokeDasharray={`${w.progress * 282.7} 282.7`} style={{ filter: `drop-shadow(0 0 ${sp.boosted ? 6 : 3}px ${sp.boosted ? "#62d2ff" : "#e3c37b"})` }} />
-              <defs>
-                <linearGradient id="gg"><stop offset="0" stopColor="#a87b2f" /><stop offset="1" stopColor="#ffe9b0" /></linearGradient>
-                <linearGradient id="gb"><stop offset="0" stopColor="#2a7fff" /><stop offset="1" stopColor="#a8f0ff" /></linearGradient>
-              </defs>
-            </svg>
-            <span className={`absolute inset-[18px] rounded-full bg-[radial-gradient(circle_at_40%_30%,#33405e,#0a0d16_75%)] shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] transition-shadow duration-300 ${sp.boosted ? "shadow-[0_0_40px_-4px_#62d2ff,inset_0_0_30px_rgba(0,0,0,0.9)]" : ""}`} />
-            {!w.paused && <span className="absolute inset-[18px] rounded-full border border-gold/20 animate-[ring-out_2.4s_ease-out_infinite]" />}
-            <span key={pulse} className={`relative text-7xl drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)] ${pulse ? "animate-[tap_220ms_ease-out]" : "animate-[bob_2.6s_ease-in-out_infinite]"}`}>{ITEMS[out].icon}</span>
-            {/* 클릭 불꽃 */}
-            {pulse > 0 && Array.from({ length: 10 }, (_, i) => {
-              const a = (i / 10) * Math.PI * 2 + pulse;
-              return <span key={`${pulse}-${i}`} className="absolute left-1/2 top-1/2 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_8px_#ffcf6a] animate-[burst_520ms_ease-out_forwards]" style={{ ["--dx" as string]: `${Math.cos(a) * 90}px`, ["--dy" as string]: `${Math.sin(a) * 90}px` }} />;
-            })}
-            {/* 획득 표시 */}
-            {s.gain && (
-              <span key={s.gain.id} className={`pointer-events-none absolute left-1/2 top-6 whitespace-nowrap text-base font-bold [text-shadow:0_2px_6px_#000] animate-[float-up_1.4s_ease-out_forwards] ${s.gain.q !== undefined ? Q_STYLE[s.gain.q].split(" ")[0] : "text-gold"}`}>
-                {s.gain.text}{s.gain.q !== undefined ? ` · ${QUALITY[s.gain.q]}` : ""}
-              </span>
-            )}
-          </button>
-          <span className={`mt-1 text-xs ${sp.boosted ? "text-mana" : "text-sub"}`}>{sp.boosted ? "⚡ 가속 중 +20%" : "클릭·Enter로 가속"}</span>
-        </div>
-        <div className="space-y-2 text-sm">
-          <Bar v={w.progress} max={1} label="작업 진행" />
-          <div className="flex flex-wrap justify-between gap-2">
-            <span>{w.paused ? "일시정지됨" : `남은 시간 ${((1 - w.progress) * cyc / 1000).toFixed(1)}초`}</span>
-            <span className="text-sub">회당 {(cyc / 1000).toFixed(2)}초 (기본 {def.sec}초)</span>
-          </div>
-          <div className={sp.boosted ? "text-gold" : "text-sub"}>
-            클릭 가속 {sp.boosted ? `활성 · ${((s.boostUntil - now) / 1000).toFixed(1)}초 남음 (+20%, 중첩 없음)` : "비활성 · 대상을 누르면 3초간 +20%"}
-          </div>
-          <div className="text-xs text-sub">속도 보정: {sp.parts.length ? sp.parts.map(([k, v]) => `${k} ${v > 0 ? "+" : ""}${v}%`).join(" · ") : "없음"} → 최종 ×{sp.mult.toFixed(3)}</div>
-          <div className="text-xs text-sub">개별 숙련 Lv.{info.lv} ({info.into}/{info.need} XP) · {FIELDS[def.field as Field]} Lv.{L.fieldLv(s, def.field as Field)} · 회당 개별 10 XP, 분야 {def.sec} XP</div>
-          {w.reserved && <div className="text-xs text-sub">예약된 재료: {w.reserved.map((b) => `${ITEMS[b.def].name}×${b.qty}`).join(", ")} (취소 시 반환)</div>}
-          {tool && <div className="text-xs text-sub">도구: {ITEMS[tool.def].name} 내구도 {Math.floor(tool.dur)}/100 (20회당 1 마모)</div>}
-          <div className="text-xs text-sub">포만감 {Math.floor(s.satiety)} · 회당 0.2 소모 · 효율 {Math.round(L.satietyEff(s.satiety) * 100)}%</div>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Btn onClick={() => act((d) => { if (d.work) d.work.paused = !d.work.paused; })}>{w.paused ? "▶ 재개" : "⏸ 일시정지"}</Btn>
-            <Btn onClick={() => act((d) => { if (d.work) d.work.stopAfter = !d.work.stopAfter; })}>{w.stopAfter ? "✔ 이번 회차 후 중단 예약됨" : "이번 회차 후 중단"}</Btn>
-            <Btn onClick={() => act((d) => { L.cancelWork(d); L.log(d, "작업 즉시 중단 (예약 재료 반환, 보상 없음)"); })}>■ 즉시 중단</Btn>
-          </div>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-function GatherList({ s, act }: { s: State; act: Act }) {
-  return (
-    <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {Object.entries(GATHER).map(([id, g]) => {
-          const lv = L.indivLv(s, id), eff = L.masteryEffect(lv), err = L.canStart(s, "gather", id);
-          return (
-            <Panel key={id} title={<span className="flex items-center gap-2"><Icon def={g.out} />{g.name}</span>}>
-              <div className="space-y-1 text-xs text-sub">
-                <div>{g.loc} · 기본 {g.sec}초 · 도구 {ITEMS[g.tool].name}</div>
-                <div>개별 Lv.{lv}: 속도 +{n1(eff.speed)}% · 추가 1개 {n1(eff.extra)}%</div>
-                {g.rare && <div>희귀: {ITEMS[g.rare.id].name} {g.rare.p * 100}% (별도 판정)</div>}
-                <div>보유 {L.count(s, g.out)}</div>
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <Btn kind="gold" disabled={!!err || s.work?.target === id} onClick={() => act((d) => L.startWork(d, "gather", id, 0))}>{s.work?.target === id ? "진행 중" : s.work ? "대상 변경" : "자동 작업 시작"}</Btn>
-              </div>
-              {err && <p className="mt-1 text-xs text-red-400">{err}</p>}
-            </Panel>
-          );
-        })}
-      </div>
-      <Panel title="잠긴 장소">
-        <ul className="space-y-1 text-sm">
-          {LOCKED_PLACES.map((p) => <li key={p.name} className="text-sub">🔒 <b className="text-ink">{p.name}</b> — {p.info} · 조건: {p.cond}</li>)}
         </ul>
-      </Panel>
+      )}
+      <p className="mt-3 border-b border-fuchsia-400/40 pb-1 text-xs text-fuchsia-300">◆ MCM 사건</p>
+      <p className="text-[13px]">독안개 토벌 주간 — 해독 재료·요리 수요 증가</p>
     </div>
   );
 }
-function RecipeCard({ id, s, act, onFetch }: { id: string; s: State; act: Act; onFetch: (def: string) => void }) {
-  const [rep, setRep] = useState(1);
-  const [sturdy, setSturdy] = useState(false);
-  const r = RECIPES[id], out = ITEMS[r.out];
-  if (!s.recipes.includes(id)) {
-    return (
-      <Panel title={<span className="flex items-center gap-2 text-sub"><Icon def={r.out} />{out.name} (미등록)</span>}>
-        <p className="text-xs text-sub">🔒 도면 획득처: {r.source}. 등록 전에는 재료 요구량이 공개되지 않습니다.</p>
-      </Panel>
-    );
-  }
-  const runs = s.runs[id] ?? 0, info = L.levelInfo(s.xp[id] ?? 0);
-  const score = Math.min(100, L.masteryEffect(info.lv).score);
-  const dist = L.qualityDist(score);
-  const miss = L.missing(s, id, rep, sturdy);
-  const err = L.canStart(s, "recipe", id, sturdy);
-  const ins = L.recipeInputs(id, sturdy);
+function ChatBox({ s }: { s: State }) {
+  const [tab, setTab] = useState<"all" | "sys">("all");
+  const [msgs, setMsgs] = useState(CHAT_SEED);
+  const [text, setText] = useState("");
   return (
-    <Panel title={<span className="flex items-center gap-2"><Icon def={r.out} />{out.name}{r.qty > 1 ? ` ×${r.qty}` : ""}</span>} right={<span className="text-xs text-sub">{r.sec * (sturdy ? 1.5 : 1)}초</span>}>
-      <ul className="space-y-1 text-sm">
-        {ins.map(([d, n]) => {
-          const have = L.count(s, d), need = n * rep;
-          return (
-            <li key={d} className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2"><Icon def={d} />{ITEMS[d].name} ×{n}</span>
-              <span className={have >= need ? "text-sub" : "text-red-400"}>
-                {have}/{need}
-                {have < need && <button className="ml-2 text-xs text-gold underline" onClick={() => onFetch(d)}>구하러 가기</button>}
-              </span>
-            </li>
-          );
-        })}
+    <div className="rounded-md bg-gradient-to-t from-black/75 to-black/35 p-2 text-xs backdrop-blur-[2px]">
+      <div className="mb-1 flex gap-1">
+        {(["all", "sys"] as const).map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded-sm px-2 py-0.5 ${tab === t ? "bg-gold/25 text-gold" : "text-sub"}`}>{t === "all" ? "지역" : "시스템"}</button>)}
+        <Demo>시드 채팅</Demo>
+      </div>
+      <ul className="flex h-28 flex-col-reverse overflow-y-auto [text-shadow:0_1px_2px_#000]">
+        {tab === "all"
+          ? [...msgs].reverse().map((m, i) => <li key={i}><b className="text-sky-300">[{m.who}]</b> {m.text}</li>)
+          : s.log.slice(0, 30).map((x, i) => <li key={i} className="text-amber-100/90">[시스템] {x}</li>)}
       </ul>
-      <div className="mt-2 text-xs text-sub">개별 숙련 Lv.{info.lv} · 숙련 점수 {n1(score)} · 암기 {Math.min(runs, 10)}/10{runs >= 10 ? " ✔ (시간 -2%)" : ""} · 제작 표시 “{makerLabel(r.out, PLAYER.name)}”</div>
-      <div className="mt-2" aria-label="예상 품질 분포">
-        <div className="mb-1 text-xs text-sub">예상 품질 (보통 재료 기준)</div>
-        <div className="grid grid-cols-5 gap-1 text-center text-[11px]">
-          {dist.map((p, q) => <div key={q} className={`rounded border px-1 py-0.5 ${Q_STYLE[q]}`}>{QUALITY[q]}<br />{n1(p)}%</div>)}
-        </div>
-      </div>
-      {id === "recipe_iron_sword" && (
-        <label className="mt-2 flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={sturdy} onChange={(e) => setSturdy(e.target.checked)} />
-          박람회 전용 견고 제작 (철 주괴 +1, 시간 +50%, 테마 점수 40)
-        </label>
-      )}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1 text-xs text-sub">반복
-          <input type="number" min={1} max={99} value={rep} onChange={(e) => setRep(Math.max(1, Math.min(99, +e.target.value || 1)))}
-            className="w-14 rounded border border-line bg-raised px-1 py-0.5 text-ink" />회
-        </label>
-        <Btn kind="gold" disabled={!!err} onClick={() => act((d) => L.startWork(d, "recipe", id, rep, sturdy))}>{s.work ? "대상 변경" : "제작 시작"}</Btn>
-        {miss.length > 0 && !err && <span className="text-xs text-amber-300">{rep}회분 중 일부 재료 부족 — 소진 시 자동 중단</span>}
-      </div>
-      {err && <p className="mt-1 text-xs text-red-400">{err}</p>}
-    </Panel>
+      <form className="mt-1 flex gap-1" onSubmit={(e) => { e.preventDefault(); if (text.trim()) { setMsgs([...msgs, { who: PLAYER.name, text: text.trim() }]); setText(""); setTab("all"); } }}>
+        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={100} placeholder="Enter로 대화 (100자)" aria-label="채팅 입력"
+          className="min-w-0 flex-1 rounded-sm border border-white/10 bg-black/50 px-2 py-1 focus:border-mana/60 focus:outline-none" />
+      </form>
+    </div>
   );
 }
-
-// ───────── 농장 ─────────
-function Farm({ s, now, act }: { s: State; now: number; act: Act }) {
-  const [seed, setSeed] = useState("seed_wheat");
-  const seeds = Object.keys(CROPS);
-  return (
-    <>
-      <Panel title="농장 4×4" right={<span className="text-xs text-sub">생육 중에는 포만감 소모 없음 · 다 자란 작물은 썩지 않음</span>}>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <label className="text-sm">씨앗
-            <select value={seed} onChange={(e) => setSeed(e.target.value)} className="ml-2 rounded border border-line bg-raised px-2 py-1">
-              {seeds.map((x) => <option key={x} value={x}>{ITEMS[x].name} (보유 {L.count(s, x)}) · {CROPS[x].min}분</option>)}
-            </select>
-          </label>
-          <Btn onClick={() => act((d, t) => d.farm.forEach((p, i) => !p.seed && L.plant(d, i, seed, t)))}>빈 칸 모두 심기</Btn>
-          <Btn kind="gold" onClick={() => act((d, t) => d.farm.forEach((_, i) => L.harvest(d, i, t)))}>일괄 수확</Btn>
-        </div>
-        <div className="grid max-w-md grid-cols-4 gap-2">
-          {s.farm.map((p, i) => {
-            const ready = p.seed && p.readyAt <= now;
-            return (
-              <button key={i} onClick={() => act((d, t) => (p.seed ? L.harvest(d, i, t) : L.plant(d, i, seed, t)))}
-                aria-label={p.seed ? `${CROPS[p.seed].name} ${ready ? "수확 가능" : "생육 중"}` : "빈 밭: 심기"}
-                className={`flex aspect-square flex-col items-center justify-center rounded-lg border text-xs ${ready ? "border-gold bg-gold/10" : "border-line bg-[#2a2216]"}`}>
-                {p.seed ? <><span className="text-2xl">{ready ? ITEMS[CROPS[p.seed].out].icon : "🌱"}</span>{ready ? "수확!" : L.fmtMs(p.readyAt - now)}</> : <span className="text-sub">빈 밭</span>}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-sub">변종 확률: 기본 0.5% + 농부 숙련 보너스(최대 +2%p). 황금 밀·은빛 약초는 수확 1개를 대체합니다.</p>
-      </Panel>
-      <Panel title="닭장">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-2xl" aria-hidden>🐔</span>
-          {s.chickenReadyAt === null ? <><span className="text-sub">밀 1개를 주면 10분 후 달걀 2개</span><Btn onClick={() => act((d, t) => L.feedChicken(d, t))}>사료 주기</Btn></>
-            : s.chickenReadyAt > now ? <span className="text-sub">달걀까지 {L.fmtMs(s.chickenReadyAt - now)}</span>
-              : <Btn kind="gold" onClick={() => act((d, t) => L.collectEggs(d, t))}>달걀 줍기</Btn>}
-        </div>
-      </Panel>
-      <Panel title="농장 확장">
-        <Unavailable>6×6 밭 — 조건: 농부 스킬 Lv.50 <b>그리고</b> 농장 허가증 (또는 확장 퀘스트 완료)</Unavailable>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 사냥 ─────────
-const FX_STYLE: Record<L.Fx["kind"], string> = {
-  hit: "text-2xl text-white", crit: "text-4xl text-amber-300 [text-shadow:0_0_14px_#ff9d00,0_2px_4px_#000]", fire: "text-2xl text-orange-400 [text-shadow:0_0_10px_#ff4d00,0_2px_4px_#000]",
-  miss: "text-lg italic text-zinc-400", heal: "text-2xl text-emerald-300", buff: "text-base text-cyan-300", poison: "text-xl text-fuchsia-400", block: "text-lg text-slate-300",
-};
-function Hunt({ s, now, act }: { s: State; now: number; act: Act }) {
-  const c = s.combat;
-  const b = L.build(s, now);
-  const live = !!c && !c.end;
-  const spells = s.school.learned.slice(0, 3);
-  const potions = s.inv.filter((x) => ITEMS[x.def].cat === "potion").slice(0, 2);
-  // 단축키: 1~3 스킬, 4~5 포션, R 도주
-  useEffect(() => {
-    if (!live) return;
-    const on = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
-      const i = "12345".indexOf(e.key);
-      if (i >= 0 && i < 3 && spells[i]) act((d) => L.queueSpell(d, spells[i]));
-      else if (i >= 3 && potions[i - 3]) act((d, t) => L.eat(d, potions[i - 3].id, t));
-      else if (e.key.toLowerCase() === "r") act((d) => L.flee(d));
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
+// 단축 슬롯: 1~3 마법(전투), 4 포션, 5 음식
+interface Slot { icon: string; label: string; sub: string; use?: (act: Act) => void; cd?: number; cdMax?: number; disabled?: boolean; active?: boolean }
+function hotbar(s: State): Slot[] {
+  const c = s.combat && !s.combat.end ? s.combat : null;
+  const spells: Slot[] = [0, 1, 2].map((i) => {
+    const id = s.school.learned[i], sp = id ? SPELLS[id] : null;
+    if (!sp) return { icon: "", label: "빈 슬롯 (학교에서 마법 습득)", sub: "", disabled: true };
+    const cd = c ? Math.max(0, (c.cds[id] ?? 0) - c.t) : 0;
+    return { icon: sp.fire ? "🔥" : sp.heal ? "💚" : sp.defBuff ? "🛡️" : "🌙", label: `${sp.name} · ${sp.desc}`, sub: `MP ${sp.mp}`, cd, cdMax: sp.cd * 1000,
+      disabled: !c || s.mp < sp.mp || cd > 0, active: c?.pending === id, use: c ? (act) => act((d) => L.queueSpell(d, id)) : undefined };
   });
-  if (!c || c.end) {
-    return (
-      <>
-        {c?.end && (
-          <div className="frame p-5 text-center animate-[pop-in_400ms_ease-out]">
-            <p className={`frame-title text-4xl font-bold animate-[title-in_700ms_ease-out_both] ${c.end === "패배" ? "!text-red-400 ![background:none]" : ""}`}>{c.end === "승리" ? "VICTORY" : c.end}</p>
-            <ul className="mx-auto mt-2 max-w-md space-y-0.5 text-xs text-sub">{c.log.slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}</ul>
-          </div>
-        )}
-        <p className="text-xs text-sub">기본 공격은 자동입니다. 스킬·포션으로 개입하세요. 사냥 중에는 생산 작업이 멈추며, 오프라인 사냥은 진행되지 않습니다. · 공격력 {n1(b.atk)} · 화염 {b.fire} · 방어 {n1(b.def)} · 공격속도 ×{n1(b.speed)}</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {(["mob_slime", "mob_wolf"] as const).map((m, i) => (
-            <div key={m} className="frame group overflow-hidden p-0 animate-[pop-in_400ms_ease-out_both]" style={{ animationDelay: `${i * 80}ms` }}>
-              <div className="relative flex h-40 items-end justify-center bg-[radial-gradient(ellipse_at_50%_100%,#2c5a3c,#0b1712_70%)]">
-                <span className="absolute bottom-3 h-4 w-28 rounded-full bg-black/60 blur-md" />
-                <span className="relative mb-4 text-7xl drop-shadow-[0_8px_12px_rgba(0,0,0,0.8)] transition-transform duration-300 group-hover:scale-110 animate-[bob_3s_ease-in-out_infinite]">{MOBS[m].icon}</span>
-                <span className="absolute left-3 top-3 rounded-sm bg-black/60 px-2 text-xs text-sub">위험도 {"★".repeat(i + 1)}</span>
-              </div>
-              <div className="p-4">
-                <p className="frame-title text-lg">{MOBS[m].name}</p>
-                <p className="text-xs text-sub">HP {MOBS[m].hp} · 공격 {MOBS[m].atk} · 방어 {MOBS[m].def} · 속도 {MOBS[m].speed}</p>
-                <p className="mb-3 text-xs text-sub">보상: {ITEMS[MOBS[m].drop].name}, {ITEMS[MOBS[m].heart!].name} 1%</p>
-                <Btn kind="gold" onClick={() => act((d) => L.startCombat(d, m))}>⚔️ 사냥 시작 (자동 반복)</Btn>
-              </div>
-            </div>
-          ))}
-        </div>
-        <Panel title="다른 사냥터"><ul className="space-y-1 text-sm text-sub"><li>🔒 독안개 늪 — 늪 독거미 · 조건: 탐사 퀘스트</li><li>🔒 수정 동굴 — 수정 골렘·별가루 · 조건: 탐사 퀘스트</li></ul></Panel>
-      </>
-    );
-  }
-  const m = MOBS[c.mob];
-  const fxs = c.fx ?? [];
-  const mobHit = [...fxs].reverse().find((f) => f.to === "mob" && f.kind !== "miss");
-  const meHit = [...fxs].reverse().find((f) => f.to === "me" && (f.kind === "hit" || f.kind === "poison"));
-  return (
-    <section className="frame overflow-hidden p-0">
-      <div className="relative h-[330px] overflow-hidden sm:h-[380px]" style={{ background: m.boss ? "radial-gradient(ellipse at 50% 110%,#3d5a2a,#132013 45%,#070b08)" : "radial-gradient(ellipse at 50% 115%,#2e5c3e,#10221a 45%,#060c0a)" }}>
-        {m.boss && <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_60%,rgba(140,255,120,0.12),transparent_60%)] animate-[glow-pulse_3s_ease-in-out_infinite]" />}
-        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent" />
-        {/* 상단: 적 체력 (보스는 레이드식 대형 바) */}
-        <div className={`absolute left-1/2 top-3 -translate-x-1/2 ${m.boss ? "w-[86%]" : "w-[60%]"} text-center`}>
-          <p className="title-solid text-sm sm:text-base">{c.hunt && "🛡️ 길드 토벌 · "}{m.name}</p>
-          <div className="relative mt-1">
-            <Bar v={c.mobHp} max={c.mobMax} color="bg-gradient-to-r from-red-900 via-red-600 to-orange-400" label="적 체력" h={m.boss ? "h-5" : "h-3.5"} />
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums text-white [text-shadow:0_1px_2px_#000]">{Math.max(0, Math.ceil(c.mobHp)).toLocaleString()} / {c.mobMax.toLocaleString()}</span>
-          </div>
-          {(c.pShield > 0 || c.mShield > 0) && <p className="mt-0.5 text-[11px] text-cyan-200">{c.pShield > 0 && `물리 방어막 ${n1(c.pShield)} `}{c.mShield > 0 && `마법 방어막 ${n1(c.mShield)}`}</p>}
-          {m.boss && <p className="mt-0.5 text-[11px] text-amber-300">행동 예고: 20초마다 전체 중독</p>}
-        </div>
-        <span className="absolute right-3 top-3 rounded-sm border border-white/10 bg-black/60 px-2 py-0.5 text-[11px] tabular-nums text-sub">{c.limit ? `⏳ ${Math.max(0, Math.ceil((c.limit - c.t) / 1000))}초` : `⏱ ${(c.t / 1000).toFixed(0)}초`}</span>
-
-        {/* 플레이어 */}
-        <div className="absolute bottom-[14%] left-[16%] flex flex-col items-center sm:left-[22%]">
-          <span className="absolute -bottom-1 h-4 w-24 rounded-full bg-black/60 blur-md" />
-          <div key={`p${c.pActs}`} className="animate-[lunge_420ms_ease-out]">
-            <span className="relative block text-7xl drop-shadow-[0_8px_10px_rgba(0,0,0,0.8)] animate-[bob_2.4s_ease-in-out_infinite] sm:text-8xl">🧙
-              {c.myMShield && <span className="absolute -inset-3 rounded-full border-2 border-indigo-300/70 shadow-[0_0_20px_#8ea0ff] animate-[glow-pulse_1.6s_ease-in-out_infinite]" />}
-              {c.defBuffUntil > c.t && <span className="absolute -inset-2 rounded-full border-2 border-stone-300/60" />}
-            </span>
-          </div>
-          <div className="mt-2 w-28"><Bar v={c.pG} max={L.GAUGE_FULL} color="bg-gradient-to-r from-amber-700 to-gold" label="내 행동 게이지" h="h-1" /></div>
-          {c.pending && <span className="mt-1 rounded-sm bg-mana/20 px-1.5 text-[10px] text-mana">예약: {SPELLS[c.pending].name}</span>}
-        </div>
-
-        {/* 적 */}
-        <div className="absolute bottom-[14%] right-[14%] flex flex-col items-center sm:right-[22%]">
-          <span className="absolute -bottom-1 h-5 w-28 rounded-full bg-black/60 blur-md" />
-          <div key={`m${c.mActs}`} className="animate-[lunge-l_420ms_ease-out]">
-            <span key={`h${mobHit?.id ?? 0}`} className={`relative block ${m.boss ? "text-8xl sm:text-9xl" : "text-7xl sm:text-8xl"} drop-shadow-[0_8px_10px_rgba(0,0,0,0.8)] ${mobHit ? "animate-[shake_300ms_ease-out,flash_220ms_ease-out]" : ""}`}>
-              {m.icon}
-              {c.pShield > 0 && <span className="absolute -inset-3 rounded-full border-2 border-cyan-200/70 shadow-[0_0_24px_#7fe9ff]" />}
-            </span>
-          </div>
-          <div className="mt-2 w-28"><Bar v={c.mG} max={L.GAUGE_FULL} color="bg-gradient-to-r from-zinc-600 to-zinc-300" label="적 행동 게이지" h="h-1" /></div>
-        </div>
-
-        {/* 떠오르는 피해 숫자 */}
-        {fxs.map((f) => (
-          <span key={f.id} className={`pointer-events-none absolute z-10 whitespace-nowrap font-black [text-shadow:0_2px_4px_#000] animate-[float-up_1s_ease-out_forwards] ${FX_STYLE[f.kind]}`}
-            style={{ left: `calc(${f.to === "mob" ? "72%" : "28%"} + ${((f.id * 37) % 50) - 25}px)`, top: `${38 + ((f.id * 13) % 12)}%` }}>
-            {f.kind === "crit" ? `치명! ${f.text}` : f.text}
-          </span>
-        ))}
-        {meHit && <span key={`hurt${meHit.id}`} className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgba(255,0,0,0.65)] animate-[hurt-edge_500ms_ease-out_forwards]" />}
-        {c.poison && <span className="pointer-events-none absolute inset-0 bg-fuchsia-900/15 animate-[glow-pulse_1.2s_ease-in-out_infinite]" />}
-      </div>
-
-      {/* 하단 스킬바 */}
-      <div className="border-t border-gold/20 bg-gradient-to-b from-black/40 to-black/80 p-3">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-end justify-center gap-2">
-          <div className="mr-2 hidden w-40 space-y-1 sm:block">
-            <HudBar label="HP" v={s.hp} max={b.maxHp} color="bg-gradient-to-r from-red-800 via-red-500 to-rose-400" />
-            <HudBar label="MP" v={s.mp} max={b.maxMp} color="bg-gradient-to-r from-blue-800 via-sky-500 to-cyan-300" />
-          </div>
-          {[0, 1, 2].map((i) => {
-            const id = spells[i], sp = id ? SPELLS[id] : null;
-            const cd = id ? Math.max(0, (c.cds[id] ?? 0) - c.t) : 0, ready = !!sp && s.mp >= sp.mp && cd <= 0;
-            return (
-              <SkillSlot key={i} hotkey={String(i + 1)} disabled={!ready} onClick={() => id && act((d) => L.queueSpell(d, id))}
-                icon={sp ? (sp.fire ? "🔥" : sp.heal ? "💚" : sp.defBuff ? "🛡️" : "🌙") : ""} label={sp?.name ?? "빈 슬롯"} sub={sp ? `MP ${sp.mp}` : ""}
-                cdFrac={sp && cd > 0 ? cd / (sp.cd * 1000) : 0} cdText={cd > 0 ? String(Math.ceil(cd / 1000)) : ""} active={c.pending === id && !!id} />
-            );
-          })}
-          <span className="mx-1 h-12 w-px bg-gold/20" />
-          {[0, 1].map((i) => {
-            const p = potions[i], cd = Math.max(0, c.potionAt - c.t);
-            return <SkillSlot key={`p${i}`} hotkey={String(i + 4)} disabled={!p || cd > 0} onClick={() => p && act((d, t) => L.eat(d, p.id, t))}
-              icon={p ? ITEMS[p.def].icon : ""} label={p ? ITEMS[p.def].name : "포션 없음"} sub={p ? `×${p.qty}` : ""} cdFrac={p && cd > 0 ? cd / 10000 : 0} cdText={cd > 0 ? String(Math.ceil(cd / 1000)) : ""} />;
-          })}
-          <SkillSlot hotkey="-" disabled icon="🍞" label="음식 (전투 중 불가)" sub="" cdFrac={0} cdText="" onClick={() => {}} />
-          <SkillSlot hotkey="R" icon="🏃" label="도주" sub="" cdFrac={0} cdText="" onClick={() => act((d) => L.flee(d))} />
-        </div>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] text-sub">
-          {!c.hunt && <button className="underline decoration-dotted hover:text-ink" onClick={() => act((d) => { if (d.combat) d.combat.auto = !d.combat.auto; })}>자동 반복 {c.auto ? "켬" : "끔"}</button>}
-          <span>· 스킬은 다음 행동을 대체(예약 1개) · 포션 공용 재사용 10초 · 행동 {c.pActs} / 적 {c.mActs}</span>
-        </div>
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer text-sub">전투 기록</summary>
-          <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto text-sub" aria-live="polite">{c.log.map((x, i) => <li key={i} className={i === 0 ? "text-ink" : ""}>{x}</li>)}</ul>
-        </details>
-      </div>
-    </section>
-  );
-}
-function SkillSlot({ hotkey, icon, label, sub, cdFrac, cdText, disabled, active, onClick }: { hotkey: string; icon: string; label: string; sub: string; cdFrac: number; cdText: string; disabled?: boolean; active?: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={label} aria-label={`${label} (단축키 ${hotkey})`}
-      className={`slot group relative flex h-14 w-14 flex-col items-center justify-center rounded-md text-2xl transition-all duration-150 enabled:hover:-translate-y-0.5 enabled:hover:border-mana enabled:hover:shadow-[0_0_14px_-2px_#62d2ff] enabled:active:scale-95 disabled:opacity-60 ${active ? "border-gold shadow-[0_0_16px_-2px_var(--color-gold)]" : ""}`}>
-      <span className="drop-shadow-[0_2px_3px_#000]">{icon}</span>
-      {sub && <span className="absolute bottom-0.5 right-1 text-[9px] text-ink/80">{sub}</span>}
-      <span className="absolute left-1 top-0.5 text-[9px] font-bold text-gold">{hotkey}</span>
-      {cdFrac > 0 && (
-        <span className="absolute inset-0 flex items-center justify-center rounded-md text-base font-bold text-white" style={{ background: `conic-gradient(rgba(0,0,0,0.72) ${cdFrac * 360}deg, transparent 0)` }}>{cdText}</span>
-      )}
-    </button>
-  );
-}
-
-// ───────── 캐릭터 ─────────
-function Character({ s, now, act }: { s: State; now: number; act: Act }) {
-  const b = L.build(s, now);
-  const w = s.equips.find((e) => e.id === s.weapon), h = s.equips.find((e) => e.id === s.heart);
-  const gems = s.inv.filter((x) => ITEMS[x.def].cat === "gem");
-  const others = s.equips.filter((e) => ["weapon", "heart"].includes(ITEMS[e.def].cat) && e.id !== s.weapon && e.id !== s.heart);
-  const slot = (e: Equip | undefined, label: string) => {
-    if (!e) return <div className="text-sm text-sub">{label}: 없음</div>;
-    const c = L.equipContribution(e);
-    return (
-      <div className="rounded-lg border border-line bg-raised p-3">
-        <div className="mb-1 text-xs text-sub">{label}</div>
-        <EquipLine e={e} />
-        <div className="mt-2 space-y-0.5 text-xs">
-          {c.lines.map((x) => <div key={x}>{x}</div>)}
-          {c.traits.map((t, i) => <div key={i}><b>{t.name}</b> <span className="text-sub">— {t.effect} / 출처: {t.src}</span></div>)}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {e.gems.map((g, i) => g
-            ? <Btn key={i} onClick={() => act((d) => L.removeGem(d, e.id, i))} title="보석 추출제 1개 소비, 보석은 보존">홈{i + 1}: {ITEMS[g.def].name}({QUALITY[g.q]}) 추출</Btn>
-            : <span key={i} className="rounded border border-dashed border-line px-2 py-1 text-xs text-sub">홈{i + 1} 비어 있음</span>)}
-        </div>
-        {e.gems.includes(null) && gems.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {gems.map((g) => <Btn key={g.id} kind="gold" onClick={() => act((d) => L.socketGem(d, e.id, g.id))}>{ITEMS[g.def].name}({QUALITY[g.q]}) 장착 → {TRAITS[ITEMS[g.def].trait!].name} Lv.{L.gemLevel(g.q)}</Btn>)}
-          </div>
-        )}
-        {e.history.length > 0 && <details className="mt-2 text-xs text-sub"><summary>가공 기록</summary>{e.history.map((x, i) => <div key={i}>{x}</div>)}</details>}
-      </div>
-    );
-  };
-  return (
-    <>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="장비 (무기 1 · 심장 1)">
-          <div className="space-y-3">{slot(w, "무기")}{slot(h, "심장")}</div>
-          <p className="mt-2 text-xs text-sub">작업 도구는 활동별로 자동 선택되며 전투 능력치에 합산하지 않습니다.</p>
-        </Panel>
-        <Panel title="최종 능력치">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            {([["최대 체력", n1(b.maxHp)], ["최대 MP", n1(b.maxMp)], ["공격력", n1(b.atk)], ["화염 공격력", b.fire], ["방어력", n1(b.def)], ["공격속도", `×${n1(b.speed)}`],
-              ["명중률", `${Math.round(b.hit * 100)}%`], ["치명타 확률", "5%"], ["치명타 공격력", "150%"], ["마법 치명타", "5% / 150%"]] as [string, ReactNode][]).map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b border-line/50 py-0.5"><dt className="text-sub">{k}</dt><dd className="tabular-nums">{v}</dd></div>
-            ))}
-          </dl>
-          <p className="mt-2 text-xs text-sub">계산 순서: 기본(HP 100·MP 30·공격 2·방어 1) + 장비 기본 × 품질 배율 → 특성 고정 가산 → 비율(분노) → 제한</p>
-          <h3 className="mb-1 mt-4 text-sm font-semibold">적용 특성 합계</h3>
-          {b.traits.length === 0 && <p className="text-xs text-sub">없음</p>}
-          <ul className="space-y-2 text-sm">
-            {b.traits.map((t) => (
-              <li key={t.t} className="rounded-lg bg-raised p-2">
-                <div className="flex flex-wrap items-center justify-between gap-1">
-                  <b>{TRAITS[t.t].name} Lv.{t.eff}{t.raw > t.eff && <span className="text-xs text-amber-300"> (보유 {t.raw}, 초과 {t.raw - t.eff} 비활성)</span>}</b>
-                  <span className={`text-xs ${t.active ? "text-emerald-300" : "text-sub"}`}>{t.reason} · {TRAITS[t.t].kind}</span>
-                </div>
-                <div className="text-xs">{L.traitEffectText(t.t, t.eff)}</div>
-                {t.eff === 5 && TRAITS[t.t].drawback5 && <div className="text-xs text-red-300">{TRAITS[t.t].drawback5}</div>}
-                <div className="text-xs text-sub">출처: {t.sources.join(" · ")}</div>
-                {t.raw >= 5 && TRAITS[t.t].drawback5 && (
-                  <label className="mt-1 flex items-center gap-1 text-xs"><input type="checkbox" checked={s.traitCap[t.t] === 4} disabled={!!s.combat && !s.combat.end}
-                    onChange={(e) => act((d) => { if (e.target.checked) d.traitCap[t.t] = 4; else delete d.traitCap[t.t]; })} />적용 상한 4로 제한 (마을에서만)</label>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-sub">같은 특성은 레벨을 먼저 합친 뒤 최종 단계 효과를 한 번 적용합니다. 장비별 단독 기여의 합과 다를 수 있습니다.</p>
-          {s.workBuff && s.workBuff.until > now && <p className="mt-2 text-xs">🍲 작업식: {s.workBuff.name} (채광 속도 +5%, {L.fmtMs(s.workBuff.until - now)})</p>}
-        </Panel>
-      </div>
-      <Panel title="장비 교체 (장착 후 비교)">
-        {others.length === 0 && <p className="text-sm text-sub">교체할 장비가 없습니다.</p>}
-        <ul className="space-y-2">
-          {others.map((e) => {
-            const isW = ITEMS[e.def].cat === "weapon";
-            const nb = L.build(s, now, isW ? e.id : s.weapon, isW ? s.heart : e.id);
-            const diff = (a: number, c: number) => { const v = n1(a - c); return v ? <span className={v > 0 ? "text-emerald-300" : "text-red-300"}>{v > 0 ? "+" : ""}{v}</span> : <span className="text-sub">±0</span>; };
-            return (
-              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2">
-                <EquipLine e={e} />
-                <span className="text-xs">공격 {n1(nb.atk)} ({diff(nb.atk, b.atk)}) · 화염 {nb.fire} ({diff(nb.fire, b.fire)}) · HP {n1(nb.maxHp)} ({diff(nb.maxHp, b.maxHp)}) · 방어 {n1(nb.def)} ({diff(nb.def, b.def)})
-                  <span className="text-sub"> · 특성 {nb.traits.map((t) => `${TRAITS[t.t].name}${t.eff}`).join(" ") || "없음"}</span></span>
-                <Btn kind="gold" disabled={!!e.locked || (!!s.combat && !s.combat.end)} onClick={() => act((d) => L.equip(d, e.id))}>장착</Btn>
-              </li>
-            );
-          })}
-        </ul>
-        <div className="mt-3"><Unavailable>장비 세트 저장 · 무기 강화</Unavailable></div>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 가방 ─────────
-const CAT_FILTER: [string, string[]][] = [["전체", []], ["재료", ["ore", "bar", "rough", "mat", "part", "crop", "fish", "seed"]], ["보석", ["gem"]], ["음식·포션", ["food", "potion"]], ["스크롤", ["scroll"]]];
-function Inventory({ s, now, act }: { s: State; now: number; act: Act }) {
-  const [qText, setQText] = useState("");
-  const [cat, setCat] = useState("전체");
-  const [open, setOpen] = useState<string | null>(null);
-  const cats = CAT_FILTER.find((c) => c[0] === cat)![1];
-  const match = (def: string, maker?: string) => (!cats.length || cats.includes(ITEMS[def].cat)) && (ITEMS[def].name.includes(qText) || (maker ?? "").includes(qText));
-  const groups = new Map<string, Batch[]>();
-  s.inv.filter((b) => match(b.def, b.makerName)).forEach((b) => groups.set(b.def, [...(groups.get(b.def) ?? []), b]));
-  const eqs = s.equips.filter((e) => (cat === "전체" || cat === "장비") && (ITEMS[e.def].name.includes(qText) || L.equipName(e).includes(qText) || (e.makerName ?? "").includes(qText)));
-  return (
-    <>
-      <Panel title={`가방 (${s.inv.length}/80 칸)`}>
-        <div className="mb-3 flex flex-wrap gap-2">
-          <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="이름·제작자 검색" aria-label="가방 검색" className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-sm" />
-          {[...CAT_FILTER.map((c) => c[0]), "장비"].map((c) => (
-            <button key={c} onClick={() => setCat(c)} className={`rounded-md px-2 py-1 text-xs ${cat === c ? "bg-gold/15 text-gold" : "text-sub hover:bg-raised"}`}>{c}</button>
-          ))}
-        </div>
-        {groups.size === 0 && cat !== "장비" && <p className="text-sm text-sub">비어 있습니다. 광산이나 농장에서 재료를 모아 보세요.</p>}
-        <ul className="divide-y divide-line">
-          {[...groups].map(([def, bs]) => {
-            const total = bs.reduce((a, b) => a + b.qty, 0);
-            return (
-              <li key={def} className="py-2">
-                <button className="flex w-full items-center gap-2 text-left" onClick={() => setOpen(open === def ? null : def)} aria-expanded={open === def}>
-                  <Icon def={def} /><span className="flex-1 text-sm">{ITEMS[def].name}{ITEMS[def].noTrade && <span className="ml-1 text-xs text-sub">(거래 불가)</span>}</span>
-                  <span className="tabular-nums text-sm">{total}</span><span className="text-xs text-sub">배치 {bs.length} {open === def ? "▲" : "▼"}</span>
-                </button>
-                {open === def && <ul className="mt-2 space-y-2 pl-10">{bs.map((b) => <BatchRow key={b.id} b={b} s={s} now={now} act={act} />)}</ul>}
-              </li>
-            );
-          })}
-        </ul>
-      </Panel>
-      <Panel title="장비·도구">
-        <ul className="space-y-2">
-          {eqs.map((e) => <EquipRow key={e.id} e={e} s={s} act={act} />)}
-        </ul>
-      </Panel>
-    </>
-  );
-}
-function BatchRow({ b, s, now, act }: { b: Batch; s: State; now: number; act: Act }) {
-  const [n, setN] = useState(1);
-  const [price, setPrice] = useState(ITEMS[b.def].price || 1);
-  const d = ITEMS[b.def], kp = L.kingdomPrice(s, b.def, b.q, now);
-  const gross = Math.floor(kp.unit * Math.min(n, b.qty)), fee = Math.ceil(gross * 0.01);
-  return (
-    <li className="rounded-lg bg-raised p-2 text-sm">
-      <div className="flex flex-wrap items-center gap-2"><QTag q={b.q} /><span className="tabular-nums">×{b.qty}</span><span className="text-xs text-sub">{makerLabel(b.def, b.makerName) ?? "출처: 채집·보급"}</span></div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {(d.cat === "food" || d.cat === "potion") && <Btn kind="gold" onClick={() => act((x, t) => L.eat(x, b.id, t))}>사용</Btn>}
-        {!d.noTrade && <>
-          <input type="number" min={1} max={b.qty} value={n} onChange={(e) => setN(Math.max(1, Math.min(b.qty, +e.target.value || 1)))} aria-label="수량" className="w-14 rounded border border-line bg-panel px-1 py-0.5" />
-          <Btn disabled={kp.closed} onClick={() => act((x, t) => L.sellKingdom(x, b.id, n, t))}>왕국 매각 {gross - fee}G</Btn>
-          <span className="text-xs text-sub">(시세 {Math.round(kp.factor * 100)}% · 수수료 1% {fee}G)</span>
-          <input type="number" min={1} value={price} onChange={(e) => setPrice(Math.max(1, +e.target.value || 1))} aria-label="개당 가격" className="w-16 rounded border border-line bg-panel px-1 py-0.5" />
-          <Btn onClick={() => act((x) => L.listItem(x, "batch", b.id, n, price))}>거래소 등록 (수령 {price * n - Math.ceil(price * n * 0.03)}G)</Btn>
-        </>}
-        <Btn kind="ghost" onClick={() => act((x) => L.bankItem(x, b.id, true))}>은행 보관</Btn>
-      </div>
-    </li>
-  );
-}
-function EquipRow({ e, s, act }: { e: Equip; s: State; act: Act }) {
-  const [price, setPrice] = useState(ITEMS[e.def].price);
-  const equipped = e.id === s.weapon || e.id === s.heart;
-  const cat = ITEMS[e.def].cat;
-  return (
-    <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2">
-      <EquipLine e={e} />
-      <div className="flex flex-wrap items-center gap-1">
-        {equipped && <span className="text-xs text-gold">장착 중</span>}
-        {(cat === "weapon" || cat === "heart") && !equipped && <Btn onClick={() => act((d) => L.equip(d, e.id))} disabled={!!e.locked}>장착</Btn>}
-        {ITEMS[e.def].maxDur && e.dur < ITEMS[e.def].maxDur! && <Btn onClick={() => act((d) => L.repair(d, e.id))}>수리 (부품 1 · +20)</Btn>}
-        {!equipped && cat !== "tool" && !e.locked && <>
-          <input type="number" min={1} value={price} onChange={(x) => setPrice(Math.max(1, +x.target.value || 1))} aria-label="판매 가격" className="w-16 rounded border border-line bg-panel px-1 py-0.5 text-sm" />
-          <Btn onClick={() => act((d) => L.listItem(d, "equip", e.id, 1, price))}>판매 등록</Btn>
-          <Btn kind="ghost" onClick={() => act((d) => L.dismantle(d, e.id))}>분해</Btn>
-        </>}
-      </div>
-    </li>
-  );
-}
-
-// ───────── 숙련도 ─────────
-function Skills({ s }: { s: State }) {
-  const indiv = Object.keys(s.xp).filter((k) => !k.startsWith("f:"));
-  const name = (k: string) => GATHER[k]?.name ?? (RECIPES[k] ? `${ITEMS[RECIPES[k].out].name} ${RECIPES[k].cat}` : k.startsWith("farm:") ? `${CROPS[k.slice(5)].name} 재배` : k.startsWith("hunt:") ? `${MOBS[k.slice(5)].name} 사냥` : k);
-  return (
-    <>
-      <Panel title="분야 숙련도">
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {(Object.keys(FIELDS) as Field[]).map((f) => {
-            const i = L.levelInfo(s.xp[L.fieldKey(f)] ?? 0);
-            return (
-              <li key={f} className="rounded-lg bg-raised p-3 text-sm">
-                <div className="flex justify-between"><b>{FIELDS[f]}</b><span>Lv.{i.lv}</span></div>
-                <Bar v={i.into} max={i.need || 1} label={`${FIELDS[f]} 경험치`} />
-                <div className="mt-1 text-xs text-sub">{i.into}/{i.need} XP · 공통 작업 속도 +{n1(Math.min(5, i.lv / 200))}% (최대 5%)</div>
-              </li>
-            );
-          })}
-        </ul>
-      </Panel>
-      <Panel title="개별 숙련도">
-        {indiv.length === 0 && <p className="text-sm text-sub">아직 수행한 작업이 없습니다.</p>}
-        <ul className="space-y-2">
-          {indiv.map((k) => {
-            const i = L.levelInfo(s.xp[k]), e = L.masteryEffect(i.lv), ne = L.masteryEffect(Math.min(1000, i.lv + 1));
-            return (
-              <li key={k} className="rounded-lg bg-raised p-3 text-sm">
-                <div className="flex justify-between"><b>{name(k)}</b><span>Lv.{i.lv} · 유효 완료 {s.runs[k] ?? Math.round(s.xp[k] / 10)}회</span></div>
-                <Bar v={i.into} max={i.need || 1} label={`${name(k)} 경험치`} />
-                <div className="mt-1 text-xs text-sub">
-                  {i.into}/{i.need} XP · 현재 {GATHER[k] ? `속도 +${n1(e.speed)}% · 추가 획득 ${n1(e.extra)}%` : `숙련 점수 ${n1(e.score)}`} → 다음 Lv {GATHER[k] ? `속도 +${n1(ne.speed)}%` : `점수 ${n1(ne.score)}`}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </Panel>
-      <Panel title="장기 성장 안내">
-        <p className="text-sm text-sub">Lv.1~50 빠른 적응 · 51~200 활발한 성장 · 201~500 전문화 · 501~800 장기 수련 · 801~1,000 장인 영역.
-          Lv.1→1,000 누적 {L.CUM[1000].toLocaleString()} XP(회당 10 XP 기준 약 {Math.ceil(L.CUM[1000] / 10).toLocaleString()}회). 수치는 목업 밸런스이며 기간을 보장하지 않습니다. 클릭은 XP를 주지 않습니다.</p>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 학교 ─────────
-function School({ s, now, act }: { s: State; now: number; act: Act }) {
-  const sc = s.school, used = 3 - sc.points;
-  const card = (id: string) => {
-    const sp = SPELLS[id], done = sc.lessons[id] ?? 0, learned = sc.learned.includes(id), paid = sc.paid.includes(id);
-    return (
-      <li key={id} className="rounded-lg bg-raised p-3 text-sm">
-        <div className="flex flex-wrap justify-between gap-2"><b>{sp.name}</b><span className="text-xs text-sub">MP {sp.mp} · {sp.desc} · 재사용 {sp.cd}초</span></div>
-        <Bar v={done} max={sp.lessons} label={`${sp.name} 진도`} />
-        <div className="mt-1 text-xs text-sub">
-          진도 {done}/{sp.lessons} · 회차 비용: 포인트 1
-          {sp.items.length > 0 && <> · 첫 회차 재료: {sp.items.map(([d, n]) => `${ITEMS[d].name}×${n}${id === "spell_flame" ? "(보통 이상)" : ""}`).join(", ")} {paid ? "✔ 납부됨" : ""}</>}
-          {sp.pre && <> · 선행: {SPELLS[sp.pre].name}</>}
-        </div>
-        <div className="mt-2">{learned ? <span className="text-xs text-emerald-300">✔ 습득 완료 (반복 시전 숙련도 없음)</span>
-          : <Btn kind="gold" disabled={sc.points < 1} onClick={() => act((d) => L.attendLesson(d, id))}>{sp.src === "scroll" ? (paid ? "해석하기" : "스크롤 등록 + 해석") : "수업 듣기"} (1포인트)</Btn>}</div>
-      </li>
-    );
-  };
-  return (
-    <>
-      <Panel title="왕립 마을 학교">
-        <p className="text-lg">오늘 학습 <b className="text-gold">{used}/3</b> · 자정 소멸 · 미접속일은 지급되지 않습니다</p>
-        <p className="text-xs text-sub">초기화까지 {L.fmtMs(L.msToKstMidnight(now))} (Asia/Seoul 00:00 기준) · 남은 포인트 {sc.points} · 누적·휴식 보너스·복귀 보상 없음</p>
-      </Panel>
-      <Panel title="수업 목록"><ul className="space-y-2">{Object.keys(SPELLS).filter((k) => SPELLS[k].src === "school").map(card)}</ul></Panel>
-      <div className="ml-auto max-w-lg">
-        <Panel title="📜 스크롤 해석실">
-          <p className="mb-2 text-xs text-sub">일반 수업에 없는 마법을 스크롤로 해석합니다. 첫 해석 때 스크롤 1개와 재료를 소비해 프로젝트를 등록하고, 이후에는 포인트만 씁니다. 보유 스크롤: 달빛 장막 {L.count(s, "scroll_moon")} · 잔불 폭발 {L.count(s, "scroll_ember")}</p>
-          <ul className="space-y-2">{Object.keys(SPELLS).filter((k) => SPELLS[k].src === "scroll").map(card)}</ul>
-        </Panel>
-      </div>
-    </>
-  );
-}
-
-// ───────── 시장 ─────────
-function Market({ s, act }: { s: State; act: Act }) {
-  const [tab, setTab] = useState("구매");
-  const [qText, setQText] = useState("");
-  const listingName = (l: L.Listing) => (l.equip ? L.equipName(l.equip) : ITEMS[l.batch!.def].name);
-  const traitsOf = (l: L.Listing) => (l.equip ? L.equipContribution(l.equip).traits.map((t) => t.name).join(", ") : l.batch && ITEMS[l.batch.def].trait ? `${TRAITS[ITEMS[l.batch.def].trait!].name} Lv.${L.gemLevel(l.batch.q)}` : "");
-  const listings = s.market.filter((l) => l.seller !== PLAYER.name && `${listingName(l)} ${l.equip?.makerName ?? l.batch?.makerName ?? ""} ${traitsOf(l)}`.includes(qText));
-  const mine = s.market.filter((l) => l.seller === PLAYER.name);
-  return (
-    <>
-      <div className="flex gap-1" role="tablist">
-        {["구매", "내 판매", "왕국", "체결 내역"].map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-lg px-3 py-1.5 text-sm ${tab === t ? "bg-gold/15 text-gold" : "text-sub hover:bg-raised"}`}>{t}</button>)}
-      </div>
-      {tab === "구매" && (
-        <Panel title={<>거래소 <Demo>판매자는 시드 이용자</Demo></>}>
-          <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="품목·제작자·특성 검색 (예: 열기, 하린)" aria-label="거래소 검색" className="mb-3 w-full rounded-md border border-line bg-raised px-2 py-1 text-sm" />
-          {listings.length === 0 && <p className="text-sm text-sub">조건에 맞는 매물이 없습니다.</p>}
-          <ul className="space-y-2">
-            {listings.map((l) => (
-              <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2">
-                {l.equip ? <EquipLine e={l.equip} /> : (
-                  <div className="flex items-center gap-2"><Icon def={l.batch!.def} q={l.batch!.q} /><div><div className="text-sm">{ITEMS[l.batch!.def].name} ×{l.batch!.qty}</div><div className="text-xs text-sub"><QTag q={l.batch!.q} /> {makerLabel(l.batch!.def, l.batch!.makerName)}</div></div></div>
-                )}
-                <div className="text-xs text-sub">{traitsOf(l)} · 판매자 {l.seller}</div>
-                <Btn kind="gold" disabled={s.gold < l.price * (l.batch?.qty ?? 1)} onClick={() => act((d, t) => L.buyListing(d, l.id, t))}>{(l.price * (l.batch?.qty ?? 1)).toLocaleString()}G 구매</Btn>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
-      {tab === "내 판매" && (
-        <Panel title="내 판매 등록" right={<span className="text-xs text-sub">가방에서 등록 · 개인 거래 수수료 3%</span>}>
-          {mine.length === 0 && <p className="text-sm text-sub">등록한 물품이 없습니다. 가방에서 “거래소 등록”을 누르세요.</p>}
-          <ul className="space-y-2">
-            {mine.map((l) => {
-              const gross = l.price * (l.batch?.qty ?? 1), fee = Math.ceil(gross * 0.03);
-              return (
-                <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2 text-sm">
-                  <span>{listingName(l)}{l.batch && ` ×${l.batch.qty}`} · {gross}G → 수령 {gross - fee}G</span>
-                  <span className="flex gap-1"><Btn kind="gold" onClick={() => act((d, t) => L.demoFillListing(d, l.id, t))}>데모 구매자 체결</Btn><Btn kind="ghost" onClick={() => act((d) => L.cancelListing(d, l.id))}>취소</Btn></span>
-                </li>
-              );
-            })}
-          </ul>
-        </Panel>
-      )}
-      {tab === "왕국" && (
-        <Panel title="왕국 상점">
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {L.SHOP.map((d) => (
-              <li key={d} className="flex items-center justify-between gap-2 rounded-lg bg-raised p-2 text-sm">
-                <span className="flex items-center gap-2"><Icon def={d} />{ITEMS[d].name}</span>
-                <span className="flex gap-1"><Btn onClick={() => act((x, t) => L.buyKingdom(x, d, 1, t))}>{ITEMS[d].price}G</Btn>{ITEMS[d].cat === "seed" && <Btn onClick={() => act((x, t) => L.buyKingdom(x, d, 10, t))}>×10</Btn>}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-sub">왕국 매각은 가방에서 할 수 있습니다. 매입가는 기준가의 50~110%로, 최근 매입량에 따라 내려가고 24시간에 걸쳐 회복합니다. 수수료 1%.</p>
-        </Panel>
-      )}
-      {tab === "체결 내역" && (
-        <Panel title="최근 체결">
-          <ul className="space-y-1 text-sm">
-            {s.ledger.filter((x) => x.text.startsWith("거래소")).map((x, i) => <li key={i}>{x.text} <span className="text-sub">{x.delta > 0 ? "+" : ""}{x.delta}G</span></li>)}
-            {SEED_TRADES.map((t, i) => <li key={`s${i}`} className="text-sub">{t.item} {t.price}G · {t.at} <Demo>시드</Demo></li>)}
-          </ul>
-        </Panel>
-      )}
-    </>
-  );
-}
-
-// ───────── 장인 명부·의뢰 ─────────
-function Artisan({ s, act }: { s: State; act: Act }) {
-  const [qText, setQText] = useState("");
-  const [form, setForm] = useState({ name: s.profile?.name ?? PLAYER.name, workshop: s.profile?.workshop ?? "", bio: s.profile?.bio ?? "", accepts: s.profile?.accepts ?? true });
-  const [req, setReq] = useState<{ to?: string; title: string; minQ: number; qty: number; reward: number } | null>(null);
-  const dup = ARTISANS.some((a) => a.workshop === form.workshop.trim());
-  const all = [...ARTISANS.map((a) => ({ ...a, seed: true })), ...(s.profile ? [{ id: PLAYER.id, name: s.profile.name, workshop: s.profile.workshop, bio: s.profile.bio, main: "-", crafts: s.stats.crafted, orders: s.orders.filter((o) => o.to === PLAYER.name && o.state === "완료").length, onTime: 100, accepts: s.profile.accepts, seed: false }] : [])]
-    .filter((a) => `${a.name} ${a.workshop} ${a.main}`.includes(qText));
-  const myOrders = s.orders.filter((o) => o.from === PLAYER.name);
-  const pub = s.orders.filter((o) => o.from !== PLAYER.name);
-  return (
-    <>
-      <Panel title="장인 명부">
-        <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="장인·공방 이름 검색" aria-label="장인 검색" className="mb-3 w-full rounded-md border border-line bg-raised px-2 py-1 text-sm" />
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {all.map((a) => (
-            <li key={a.id} className="rounded-lg bg-raised p-3 text-sm">
-              <div className="flex justify-between"><b>{a.name} / {a.workshop}</b>{a.seed && <Demo>시드 장인</Demo>}</div>
-              <div className="text-xs text-sub">{a.bio}</div>
-              <div className="text-xs text-sub">주력 {a.main} · 제작 {a.crafts.toLocaleString()}회 · 주문 완료 {a.orders} · 납기 준수 {a.onTime}% · {a.accepts ? "수주 가능" : "수주 중단"}</div>
-              {a.seed && a.accepts && <div className="mt-2"><Btn kind="gold" onClick={() => setReq({ to: a.name, title: `${a.main === "철검" ? "우수 철검" : a.main} 제작 요청`, minQ: 3, qty: 1, reward: 250 })}>제작 요청</Btn></div>}
-            </li>
-          ))}
-        </ul>
-      </Panel>
-      {req && (
-        <Panel title={`의뢰 작성${req.to ? ` → ${req.to} 지정` : " (공개)"}`}>
-          <div className="grid gap-2 text-sm sm:grid-cols-2">
-            <label>제목 <input maxLength={40} value={req.title} onChange={(e) => setReq({ ...req, title: e.target.value })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" /></label>
-            <label>품목 <input disabled value="철검" className="mt-1 w-full rounded border border-line bg-raised px-2 py-1 text-sub" /></label>
-            <label>최소 품질 <select value={req.minQ} onChange={(e) => setReq({ ...req, minQ: +e.target.value })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1">{QUALITY.map((q, i) => <option key={q} value={i}>{q} 이상</option>)}</select></label>
-            <label>수량 <input type="number" min={1} max={5} value={req.qty} onChange={(e) => setReq({ ...req, qty: Math.max(1, Math.min(5, +e.target.value || 1)) })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" /></label>
-            <label>보수(G) <input type="number" min={1} value={req.reward} onChange={(e) => setReq({ ...req, reward: Math.max(1, +e.target.value || 1) })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" /></label>
-            <div className="text-xs text-sub">재료: 제작자 제공 · 기한 48시간 · 수수료 3% ({Math.ceil(req.reward * 0.03)}G)<br />주문자 재료 제공형·확률 도전형은 확장 예정(비활성)</div>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Btn kind="gold" onClick={() => { act((d, t) => L.createOrder(d, { ...req, def: "weapon_iron" }, t)); setReq(null); }}>견적 요청 (골드 차감 없음)</Btn>
-            <Btn kind="ghost" onClick={() => setReq(null)}>취소</Btn>
-          </div>
-        </Panel>
-      )}
-      <Panel title="내 의뢰" right={<Btn onClick={() => setReq({ title: "토벌대용 철검 제작 요청", minQ: 1, qty: 1, reward: 150 })}>공개 의뢰 작성</Btn>}>
-        {myOrders.length === 0 && <p className="text-sm text-sub">작성한 의뢰가 없습니다.</p>}
-        <ul className="space-y-2">
-          {myOrders.map((o) => (
-            <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2 text-sm">
-              <span><b>{o.title}</b> · {QUALITY[o.minQ]} 이상 철검×{o.qty} · 보수 {o.reward}G · {o.to ? `지정: ${o.to}` : "공개"} · <span className="text-gold">{o.state}</span></span>
-              <span className="flex flex-wrap gap-1">
-                {o.state === "견적" && <Btn kind="gold" onClick={() => act((d, t) => L.confirmOrder(d, o.id, t))}>확정 · 보수 예치</Btn>}
-                {(o.state === "견적" || o.state === "모집") && <Btn kind="ghost" onClick={() => act((d, t) => L.cancelOrder(d, o.id, t))}>취소(전액 반환)</Btn>}
-                {(o.state === "모집" || o.state === "수락") && <Btn onClick={() => act((d, t) => L.demoArtisanProgress(d, o.id, t))}>{o.state === "모집" ? "데모: 장인 수락" : "데모: 납품·정산"}</Btn>}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-      <Panel title={<>공개 주문 <Demo>시드 주문자</Demo></>}>
-        <ul className="space-y-2">
-          {pub.map((o) => (
-            <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised p-2 text-sm">
-              <span><b>{o.title}</b> · {o.from} · {QUALITY[o.minQ]} 이상 {ITEMS[o.def].name}×{o.qty} · 보수 {o.reward}G (수령 {o.reward - Math.ceil(o.reward * 0.03)}G) · <span className="text-gold">{o.state}</span></span>
-              {o.state === "모집" && <Btn kind="gold" onClick={() => act((d) => L.acceptOrder(d, o.id))}>수락</Btn>}
-              {o.state === "수락" && <Btn kind="gold" onClick={() => act((d, t) => L.deliverOrder(d, o.id, t))}>납품</Btn>}
-            </li>
-          ))}
-        </ul>
-      </Panel>
-      <Panel title="내 공방 등록">
-        <div className="grid gap-2 text-sm sm:grid-cols-2">
-          <label>공개명 (12자) <input maxLength={12} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" /></label>
-          <label>공방명 (16자) <input maxLength={16} value={form.workshop} onChange={(e) => setForm({ ...form, workshop: e.target.value })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" />
-            {dup && <span className="text-xs text-red-400">이미 사용 중인 공방명입니다.</span>}</label>
-          <label className="sm:col-span-2">소개 (60자) <input maxLength={60} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} className="mt-1 w-full rounded border border-line bg-raised px-2 py-1" /></label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={form.accepts} onChange={(e) => setForm({ ...form, accepts: e.target.checked })} />수주 가능</label>
-        </div>
-        <div className="mt-2"><Btn kind="gold" disabled={dup || !form.name.trim() || !form.workshop.trim()} onClick={() => act((d) => { d.profile = { ...form, name: form.name.trim(), workshop: form.workshop.trim() }; L.log(d, `장인 명부 등록: ${form.name} / ${form.workshop}`); })}>{s.profile ? "수정" : "등록"}</Btn></div>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 길드 ─────────
-function Guild({ s, act, go }: { s: State; act: Act; go: Go }) {
-  const g = s.guild;
-  const irons = s.equips.filter((e) => e.def === "weapon_iron" && !e.locked && e.id !== s.weapon);
-  const hunt = [...HUNT_SEED.map((x) => ({ ...x, seed: true })), ...(g.huntBest ? [{ guild: "새벽상회", ...g.huntBest, seed: false }] : [])].sort(L.huntCmp);
-  const expo = [...EXPO_SEED.map((x) => ({ ...x, seed: true })), ...(g.expo ? [{ guild: "새벽상회", quality: g.expo.quality, theme: g.expo.theme, item: g.expo.item, seed: false }] : [])].sort((a, b) => b.quality + b.theme - (a.quality + a.theme));
-  const rankOf = (i: number) => expo.findIndex((x) => x.quality + x.theme === expo[i].quality + expo[i].theme) + 1; // 동점 공동 순위
-  return (
-    <>
-      <Panel title={<>새벽상회 <span className="text-xs text-sub">혼합 생산 길드 · 6/30명</span></>}>
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs text-sub"><tr><th>멤버</th><th>직위</th><th>권한</th></tr></thead>
-          <tbody>
-            {[["새벽", "길드장", "가입 승인·계약 수락·금고·공지·직위·급여"], ["담", "부길드장", "계약 수락·공지"], ["이안", "토벌대장", "토벌 등록"], ["루미", "단원", "-"]].map(([n, r, p]) => (
-              <tr key={n} className="border-t border-line"><td className="py-1">{n}{n !== "새벽" && <> <Demo>시드</Demo></>}</td><td>{r}</td><td className="text-xs text-sub">{p}</td></tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="mt-2 text-sm">길드 금고 {g.treasury.toLocaleString()}G · 권한 변경 이력: 새벽 → 담 계약 수락 권한 부여</p>
-      </Panel>
-      <Panel title="공동 납품: 토벌 보급 계약" right={<span className="text-xs text-sub">협력 콘텐츠 · 순위 없음</span>}>
-        <div className="space-y-2 text-sm">
-          <div>생선구이 {g.fish}/30 <Bar v={g.fish} max={30} label="생선구이 납품" /></div>
-          <div>작은 체력 포션 {g.potion}/20 <Bar v={g.potion} max={20} label="포션 납품" /></div>
-          <p className="text-xs text-sub">보상 1,800G · 수락 시 확정된 배분: 기여 수량 비율 · 내 기여 생선 {g.myFish}, 포션 {g.myPotion} (다른 기여는 시드 길드원)</p>
-          <div className="flex flex-wrap gap-2">
-            <Btn disabled={g.deliveryDone || g.fish >= 30} onClick={() => act((d) => L.contribute(d, "fish"))}>생선구이 납품 (보유 {L.count(s, "food_fish")})</Btn>
-            <Btn disabled={g.deliveryDone || g.potion >= 20} onClick={() => act((d) => L.contribute(d, "potion"))}>포션 납품 (보유 {L.count(s, "potion_hp")})</Btn>
-            <Btn kind="gold" disabled={g.deliveryDone || g.fish < 30 || g.potion < 20} onClick={() => act((d, t) => L.claimDelivery(d, t))}>{g.deliveryDone ? "정산 완료" : "계약 정산"}</Btn>
-          </div>
-        </div>
-      </Panel>
-      <Panel title="길드 토벌전: 늪의 군주" right={<span className="text-xs text-sub">7일 기간 · 주간 3회</span>}>
-        <p className="text-sm">유효 도전 {g.huntAttempts}/3 · 회차당 등록 최대 5명(시작 시 고정) · 제한 60초 · 최고 기록 1개</p>
-        <p className="text-xs text-sub">순위: 처치 여부 → 남은 시간 → 남은 보스 HP. 보스는 20초마다 전체 중독을 시도합니다. 보상은 칭호·문장 중심(영구 능력치 없음).</p>
-        <div className="my-2"><Btn kind="gold" disabled={g.huntAttempts >= 3 || (!!s.combat && !s.combat.end)} onClick={() => { act((d) => L.startHunt(d)); go("hunt"); }}>토벌 도전</Btn></div>
-        <ol className="space-y-1 text-sm">
-          {hunt.map((h, i) => <li key={h.guild}>{i + 1}위 {h.guild} — {h.killed ? `처치 (남은 ${Math.round(h.timeLeft / 1000)}초)` : `실패 · 보스 HP ${h.bossHp.toLocaleString()}`} {h.seed && <Demo>시드 기록</Demo>}</li>)}
-        </ol>
-      </Panel>
-      <Panel title="제작 박람회: 철검" right={<span className="text-xs text-sub">길드당 1점 · 7일</span>}>
-        <p className="text-xs text-sub">허용 재료: 철 주괴·수지 · 보석 불가 · 품질 60점(불량 0·보통 15·양질 30·우수 45·명품 60) + 테마 “오래 쓰는 검” 40점(기본 20 / 견고 제작 40). 인기투표 없음. 제출품은 마감까지 잠기고 종료 후 반환됩니다.</p>
-        {!g.expo ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {irons.length === 0 && <span className="text-sm text-sub">제출 가능한 철검이 없습니다 (장착 중 제외).</span>}
-            {irons.map((e) => <Btn key={e.id} onClick={() => act((d) => L.submitExpo(d, e.id))}>{L.equipName(e)} ({QUALITY[e.q]}{e.sturdy ? "·견고" : ""}, {e.makerName}) 제출</Btn>)}
-          </div>
-        ) : <div className="mt-2"><Btn onClick={() => act((d) => L.endExpo(d))}>데모: 박람회 종료·반환</Btn></div>}
-        <ol className="mt-2 space-y-1 text-sm">
-          {expo.map((x, i) => <li key={x.guild}>{rankOf(i)}위 {x.guild} — {x.quality + x.theme}점 (품질 {x.quality} + 테마 {x.theme}) · {x.item} {x.seed && <Demo>시드</Demo>}</li>)}
-        </ol>
-      </Panel>
-      <Panel title="급여">
-        <p className="text-sm text-sub">지급 내역: 10/31 담 주급 120G (수동) · 10/24 담 주급 120G (수동) <Demo>시드</Demo></p>
-        <div className="mt-2"><Unavailable>자동 급여 예약(준비금·계급별 금액)</Unavailable></div>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 은행 ─────────
-function Bank({ s, act }: { s: State; act: Act }) {
-  const [amt, setAmt] = useState(100);
-  return (
-    <>
-      <Panel title="개인 보관함">
-        <p className="text-sm">보관 골드 <b className="text-gold">{s.bank.gold.toLocaleString()}G</b> · 소지 {s.gold.toLocaleString()}G</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input type="number" min={1} value={amt} onChange={(e) => setAmt(Math.max(1, +e.target.value || 1))} aria-label="금액" className="w-24 rounded border border-line bg-raised px-2 py-1 text-sm" />
-          <Btn onClick={() => act((d, t) => L.bankGold(d, amt, t))}>입금</Btn>
-          <Btn onClick={() => act((d, t) => L.bankGold(d, -amt, t))}>출금</Btn>
-        </div>
-        <h3 className="mb-1 mt-3 text-sm font-semibold">보관 물품</h3>
-        {s.bank.items.length === 0 && <p className="text-xs text-sub">비어 있음 · 가방에서 “은행 보관”</p>}
-        <ul className="space-y-1">
-          {s.bank.items.map((b) => (
-            <li key={b.id} className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-2"><Icon def={b.def} q={b.q} />{ITEMS[b.def].name} ×{b.qty} <span className="text-xs text-sub">{makerLabel(b.def, b.makerName)}</span></span>
-              <Btn onClick={() => act((d) => L.bankItem(d, b.id, false))}>꺼내기</Btn>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-      <Panel title="거래·수입·지출 기록">
-        {s.ledger.length === 0 && <p className="text-sm text-sub">기록이 없습니다.</p>}
-        <ul className="max-h-80 space-y-1 overflow-y-auto text-sm">
-          {s.ledger.map((x, i) => <li key={i} className="flex justify-between gap-2"><span>{x.text}</span><span className={x.delta >= 0 ? "text-emerald-300" : "text-red-300"}>{x.delta >= 0 ? "+" : ""}{x.delta}G</span></li>)}
-        </ul>
-      </Panel>
-      <Panel title="확장 기능">
-        <div className="space-y-2"><Unavailable>예금 이자 (예치 한도·기간·이자 예산)</Unavailable><Unavailable>담보 대출</Unavailable><Unavailable>길드 금고 연결 이체</Unavailable></div>
-      </Panel>
-    </>
-  );
-}
-
-// ───────── 업적·기록 ─────────
-function Records({ s }: { s: State }) {
-  const list: [string, string, boolean][] = [
-    ["첫 곡괭이질", "원석 1개 채광", s.stats.mined >= 1],
-    ["광맥의 주인", "원석 100개 채광", s.stats.mined >= 100],
-    ["철검의 첫걸음", "철검 10회 제작(암기)", (s.runs.recipe_iron_sword ?? 0) >= 10],
-    ["숲의 파수꾼", "몬스터 10마리 처치", s.stats.kills >= 10],
-    ["첫 거래", "거래소 거래 1회", s.stats.trades >= 1],
-    ["성실한 학생", "수업 5회 수강", s.stats.lessons >= 5],
-    ["???", "숨겨진 업적", false],
+  const potion = s.inv.find((x) => ITEMS[x.def].cat === "potion");
+  const food = s.inv.find((x) => ITEMS[x.def].cat === "food");
+  const pcd = c ? Math.max(0, c.potionAt - c.t) : 0;
+  return [...spells,
+    potion ? { icon: ITEMS[potion.def].icon, label: ITEMS[potion.def].name, sub: `×${count(s, potion.def)}`, cd: pcd, cdMax: 10000, disabled: pcd > 0, use: (act) => act((d, t) => L.eat(d, potion.id, t)) } : { icon: "", label: "포션 없음", sub: "", disabled: true },
+    food ? { icon: ITEMS[food.def].icon, label: `${ITEMS[food.def].name}${c ? " (전투 중 불가)" : ""}`, sub: `×${count(s, food.def)}`, disabled: !!c, use: c ? undefined : (act) => act((d, t) => L.eat(d, food.id, t)) } : { icon: "", label: "음식 없음", sub: "", disabled: true },
   ];
-  const works = s.equips.filter((e) => e.maker === PLAYER.id).sort((a, b) => b.q - a.q).slice(0, 5);
+}
+const count = (s: State, def: string) => s.inv.filter((b) => b.def === def).reduce((a, b) => a + b.qty, 0);
+function Orb({ v, max, color, label }: { v: number; max: number; color: string; label: string }) {
+  const pct = Math.max(0, Math.min(100, (v / max) * 100));
   return (
-    <>
-      <Panel title="업적">
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {list.map(([n, d, ok]) => <li key={n} className={`rounded-lg border p-2 text-sm ${ok ? "border-gold/60 bg-gold/10" : "border-line"}`}>{ok ? "🏆" : "▫️"} <b>{n}</b> <span className="text-xs text-sub">— {d}</span></li>)}
-        </ul>
-      </Panel>
-      <Panel title="대표 작품">
-        {works.length === 0 ? <p className="text-sm text-sub">직접 제작한 장비가 없습니다.</p> : <ul className="space-y-2">{works.map((e) => <li key={e.id}><EquipLine e={e} /></li>)}</ul>}
-      </Panel>
-      <Panel title="통계"><p className="text-sm text-sub">채광 {s.stats.mined} · 제작 {s.stats.crafted} · 처치 {s.stats.kills} · 거래 {s.stats.trades} · 수업 {s.stats.lessons}</p></Panel>
-    </>
+    <div className="relative hidden h-[72px] w-[72px] overflow-hidden rounded-full border-2 border-gold/60 sm:block bg-black/80 shadow-[0_0_0_3px_rgba(0,0,0,0.6),inset_0_0_14px_#000] sm:h-20 sm:w-20" role="progressbar" aria-label={label} aria-valuenow={Math.round(v)} aria-valuemax={Math.round(max)}>
+      <div className="absolute inset-x-0 bottom-0 transition-[height] duration-300" style={{ height: `${pct}%`, background: color }}>
+        <div className="absolute -top-2 left-[-50%] h-4 w-[200%] rounded-[45%] bg-white/25 animate-[wave-x_3s_linear_infinite]" />
+      </div>
+      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.45),transparent_40%)]" />
+      <span className="absolute inset-0 flex flex-col items-center justify-center text-[11px] font-bold leading-tight [text-shadow:0_1px_2px_#000]"><span className="text-[9px] text-white/70">{label}</span>{Math.floor(v)}</span>
+    </div>
   );
 }
-
-// ───────── 개발 옵션 ─────────
-function Dev({ act, go }: { act: Act; go: Go }) {
+function ActionBar({ s, now, act, maxHp, maxMp, onBoost, openWork }: { s: State; now: number; act: Act; maxHp: number; maxMp: number; onBoost: () => void; openWork: () => void }) {
+  const c = s.combat && !s.combat.end ? s.combat : null;
+  const w = s.work;
+  const slots = hotbar(s);
+  const key = w?.target;
+  const info = key ? L.levelInfo(s.xp[key] ?? 0) : null;
   return (
-    <Panel title={<>개발 옵션 <Demo>일반 플레이에 섞이지 않음</Demo></>}>
-      <div className="flex flex-wrap gap-2">
-        <Btn onClick={() => act((d) => L.devGrant(d))}>재료·데모 장비 지급 (축복과 용기의 검, 분노 검, 격노의 심장)</Btn>
-        <Btn onClick={() => act((d) => { d.forceNight = d.forceNight ? false : true; })}>낮/밤 강제 전환</Btn>
-        <Btn onClick={() => act((d) => { d.forceNight = null; })}>낮/밤 실제 시간</Btn>
-        <Btn onClick={() => act((d, t) => { d.farm.forEach((p) => { if (p.seed) p.readyAt = t; }); if (d.chickenReadyAt) d.chickenReadyAt = t; })}>작물·달걀 즉시 성장</Btn>
-        <Btn onClick={() => act((d) => { d.school.points = 3; })}>학습 포인트 3 (테스트)</Btn>
-        <Btn onClick={() => { act((d) => L.startCombat(d, "mob_speed_dummy")); go("hunt"); }}>속도 허수아비 (0.5)</Btn>
-        <Btn onClick={() => { act((d) => L.startCombat(d, "mob_shield_dummy")); go("hunt"); }}>물리 방어막 허수아비</Btn>
-        <Btn onClick={() => act((d) => { d.hp = L.build(d, Date.now()).maxHp; d.mp = L.build(d, Date.now()).maxMp; })}>HP/MP 회복</Btn>
-        <Btn onClick={() => { if (confirm("저장 데이터를 초기화할까요?")) { localStorage.removeItem(SAVE_KEY); location.reload(); } }}>저장 초기화</Btn>
+    <div className="flex w-full max-w-[720px] flex-col items-center px-2">
+      {w && !c && (
+        <div className="mb-2 flex w-full max-w-md items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-xs backdrop-blur animate-[pop-in_250ms_ease-out]">
+          <button onClick={openWork} className="truncate font-semibold text-gold hover:underline">{L.workDef(w).name}</button>
+          <div className="flex-1"><Bar v={w.progress} max={1} color={s.boostUntil > now ? "bg-gradient-to-r from-sky-600 to-cyan-300" : undefined} label="작업 진행" h="h-2" /></div>
+          <span className="tabular-nums text-sub">{w.done}{w.repeat ? `/${w.repeat}` : ""}</span>
+          <button onClick={onBoost} className={`rounded-full border px-2 py-0.5 text-[11px] transition ${s.boostUntil > now ? "border-mana text-mana shadow-[0_0_10px_#62d2ff]" : "border-gold/50 text-gold hover:bg-gold/20"}`}>SPACE 가속</button>
+          <button onClick={() => act((d) => { if (d.work) d.work.paused = !d.work.paused; })} className="text-sub hover:text-ink" title="일시정지">{w.paused ? "▶" : "⏸"}</button>
+          <button onClick={() => act((d) => L.cancelWork(d))} className="text-sub hover:text-red-300" title="즉시 중단 (예약 재료 반환)">■</button>
+        </div>
+      )}
+      {c && <p className="mb-1 text-xs text-sub [text-shadow:0_1px_2px_#000]">⚔️ {c.hunt ? "길드 토벌" : "전투"} 중 · 스킬은 다음 행동을 대체 · R 도주{c.limit ? ` · 남은 ${Math.max(0, Math.ceil((c.limit - c.t) / 1000))}초` : ""}{!c.hunt && <> · <button className="underline" onClick={() => act((d) => { if (d.combat) d.combat.auto = !d.combat.auto; })}>자동 반복 {c.auto ? "켬" : "끔"}</button></>}</p>}
+      <div className="flex items-end gap-2 sm:gap-3">
+        <Orb v={s.hp} max={maxHp} color="linear-gradient(180deg,#ff6b6b,#a1121d)" label="HP" />
+        <div className="rounded-lg border border-gold/30 bg-gradient-to-b from-black/60 to-black/85 p-1.5 shadow-[0_0_30px_rgba(0,0,0,0.8)] backdrop-blur">
+          <div className="flex gap-1.5">
+            {slots.map((x, i) => (
+              <SkillSlot key={i} hotkey={String(i + 1)} icon={x.icon} label={x.label} sub={x.sub} disabled={x.disabled || !x.use} active={x.active}
+                cdFrac={x.cd && x.cdMax ? x.cd / x.cdMax : 0} cdText={x.cd ? String(Math.ceil(x.cd / 1000)) : ""} onClick={() => x.use?.(act)} />
+            ))}
+            {c && <SkillSlot hotkey="R" icon="🏃" label="도주" sub="" cdFrac={0} cdText="" onClick={() => act((d) => L.flee(d))} />}
+          </div>
+        </div>
+        <Orb v={s.mp} max={maxMp} color="linear-gradient(180deg,#6fd8ff,#103f9e)" label="MP" />
       </div>
-    </Panel>
+      {/* 숙련도 경험치 줄 */}
+      <div className="mt-1.5 w-full max-w-[560px]" title={info ? `개별 숙련 Lv.${info.lv} ${info.into}/${info.need}` : "작업 중인 숙련도"}>
+        <Bar v={info?.into ?? 0} max={info?.need || 1} color="bg-gradient-to-r from-violet-700 via-fuchsia-500 to-amber-300" label="숙련도 경험치" h="h-1" />
+        {info && <p className="text-center text-[10px] text-sub [text-shadow:0_1px_2px_#000]">{L.workDef(w!).name} 숙련 Lv.{info.lv} · {info.into}/{info.need} XP</p>}
+      </div>
+    </div>
+  );
+}
+function GameWindow({ title, icon, onClose, children }: { title: string; icon: string; onClose: () => void; children: ReactNode }) {
+  const [off, setOff] = useState({ x: 0, y: 0 });
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-2 sm:p-6" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="frame flex max-h-full w-full max-w-[920px] flex-col overflow-hidden !bg-[linear-gradient(180deg,rgba(18,23,36,0.96),rgba(8,10,16,0.97))] animate-[window-in_220ms_ease-out] sm:max-h-[82vh]"
+        style={{ transform: `translate(${off.x}px, ${off.y}px)` }} role="dialog" aria-label={title}>
+        <div className="flex cursor-move touch-none items-center gap-2 border-b border-gold/30 bg-gradient-to-r from-gold/15 via-transparent to-transparent px-4 py-2"
+          onPointerDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, ox: off.x, oy: off.y }; (e.target as HTMLElement).setPointerCapture(e.pointerId); }}
+          onPointerMove={(e) => { const d = drag.current; if (d) setOff({ x: d.ox + e.clientX - d.x, y: d.oy + e.clientY - d.y }); }}
+          onPointerUp={() => { drag.current = null; }}>
+          <span className="text-xl">{icon}</span>
+          <h2 className="frame-title flex-1 text-lg font-bold">{title}</h2>
+          <span className="hidden text-[10px] text-sub sm:inline">드래그로 이동 · Esc 닫기</span>
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="닫기" className="flex h-7 w-7 items-center justify-center rounded border border-white/15 text-sub transition hover:border-red-400 hover:text-red-300">✕</button>
+        </div>
+        <div className="space-y-4 overflow-y-auto p-3 sm:p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+function DialogBox({ d, onClose }: { d: Dialog; onClose: () => void }) {
+  return (
+    <div className="absolute inset-x-2 bottom-44 z-30 mx-auto max-w-2xl animate-[pop-in_250ms_ease-out] sm:bottom-40">
+      <div className="frame flex gap-4 p-4">
+        <span className="slot q4 flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-5xl">{d.icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="title-solid text-base">{d.name}</p>
+          <p key={d.text} className="mt-1 text-sm leading-relaxed animate-[type-in_900ms_steps(40)_both]">“{d.text}”</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {d.actions.map(([label, fn]) => <Btn key={label} kind="gold" onClick={() => { fn(); onClose(); }}>{label}</Btn>)}
+            <Btn onClick={onClose}>{d.actions.length ? "나중에" : "대화 종료"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
