@@ -1,33 +1,136 @@
 @import "tailwindcss";
 
-/* 어두운 남청 배경 + 절제된 금색 강조 */
+/* MMORPG HUD 테마: 깊은 흑청 + 금속 금색 + 마력 청록 */
 @theme {
-  --color-bg: #0e1422;
-  --color-panel: #161f33;
-  --color-raised: #1d2840;
-  --color-line: #2b3858;
-  --color-ink: #ece8dc;
-  --color-sub: #9aa5bd;
-  --color-gold: #d9b45a;
-}
-
-@keyframes tap {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.25) rotate(-8deg); }
-  100% { transform: scale(1); }
+  --color-bg: #06080e;
+  --color-panel: #0f1420;
+  --color-raised: #161d2d;
+  --color-line: #2a3348;
+  --color-ink: #ece6d6;
+  --color-sub: #8f9ab3;
+  --color-gold: #e3c37b;
+  --color-mana: #62d2ff;
+  --font-title: var(--font-serif), "Noto Serif KR", serif;
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+:focus-visible { outline: 2px solid var(--color-mana); outline-offset: 2px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #2a3348; border-radius: 8px; }
+
+/* ── 프레임: 유리 패널 + 금속 테두리 + 모서리 장식 ── */
+.frame {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 40%),
+    linear-gradient(180deg, rgba(17, 22, 34, 0.86), rgba(8, 11, 18, 0.92));
+  border: 1px solid rgba(227, 195, 123, 0.22);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+  border-radius: 6px;
+}
+.frame::before, .frame::after {
+  content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+  border-color: var(--color-gold); opacity: 0.75;
+}
+.frame::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: 6px; }
+.frame::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: 6px; }
+.frame-title {
+  font-family: var(--font-title);
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, #fff3cf, #d6ae5e 60%, #9c7533);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+/* 아이콘이 섞이는 제목용: 그라데이션 클립 대신 단색 금색 */
+.title-solid { font-family: var(--font-title); letter-spacing: 0.03em; color: #ecd08f; text-shadow: 0 1px 0 #000, 0 0 12px rgba(227, 195, 123, 0.25); }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(227, 195, 123, 0.5), transparent); }
+
+/* ── 버튼 ── */
+.btn {
+  position: relative; overflow: hidden;
+  background: linear-gradient(180deg, #222b3f, #141a28);
+  border: 1px solid #36415a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: border-color 150ms, box-shadow 150ms, transform 120ms, filter 150ms;
+}
+.btn:hover:not(:disabled) { border-color: rgba(98, 210, 255, 0.6); box-shadow: 0 0 14px -2px rgba(98, 210, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(0.98); }
+.btn-gold {
+  color: #1b1408; font-weight: 600;
+  background: linear-gradient(180deg, #f6dea0, #d3a650 55%, #a87b2f);
+  border-color: #f3d58f;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-gold:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 0 18px -2px rgba(227, 195, 123, 0.7); border-color: #fff0c4; }
+.btn-gold::after, .shine::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+  animation: sweep 3.2s ease-in-out infinite;
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-gold);
-  outline-offset: 2px;
+/* ── 아이템 슬롯 품질 광채 ── */
+.slot { background: radial-gradient(circle at 50% 35%, #26304a, #0d111b 75%); border: 1px solid #3a4560; }
+.q0 { border-color: #4b5160; }
+.q1 { border-color: #7d8aa6; }
+.q2 { border-color: #3fbf7f; box-shadow: 0 0 10px -3px #3fbf7f; }
+.q3 { border-color: #4aa8ff; box-shadow: 0 0 12px -2px #4aa8ff; }
+.q4 { border-color: #ffc24a; box-shadow: 0 0 16px -1px #ffb02e; animation: legend 2.4s ease-in-out infinite; }
+
+/* ── 게이지 ── */
+.bar-track { background: linear-gradient(180deg, #05070c, #10141f); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9); }
+.bar-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 55%); }
+
+/* ── 장면: 하늘·산·안개·입자 ── */
+.scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; transition: background 900ms ease; }
+.scene .ridge { position: absolute; left: -5%; right: -5%; bottom: 0; }
+.scene .fog { position: absolute; left: -50%; width: 200%; height: 28%; bottom: 8%; opacity: 0.35; filter: blur(30px);
+  background: radial-gradient(ellipse at 30% 50%, rgba(200, 210, 255, 0.35), transparent 60%), radial-gradient(ellipse at 75% 50%, rgba(200, 210, 255, 0.25), transparent 60%);
+  animation: drift 40s linear infinite alternate; }
+.scene .mote { position: absolute; border-radius: 9999px; animation: rise linear infinite; }
+.scene .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.75)); }
+
+/* ── 애니메이션 ── */
+@keyframes sweep { 0%, 60% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+@keyframes legend { 50% { box-shadow: 0 0 24px 1px #ffb02e; } }
+@keyframes drift { from { transform: translateX(0); } to { transform: translateX(20%); } }
+@keyframes rise {
+  0% { transform: translate(0, 0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate(40px, -110vh) scale(0.4); opacity: 0; }
 }
+@keyframes screen-in { from { opacity: 0; transform: translateY(10px) scale(0.995); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes pop-in { 0% { opacity: 0; transform: scale(0.85); } 60% { opacity: 1; transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes float-up {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -6px) scale(1.25); }
+  30% { transform: translate(-50%, -14px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(0.95); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-9px) rotate(-3deg); }
+  40% { transform: translateX(7px) rotate(2deg); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+@keyframes flash { 0% { filter: brightness(3) saturate(0); } 100% { filter: none; } }
+@keyframes lunge { 0%, 100% { transform: translateX(0); } 35% { transform: translateX(46px) scale(1.08); } }
+@keyframes lunge-l { 0%, 100% { transform: translateX(0); } 35% { transform: translateX(-46px) scale(1.08); } }
+@keyframes bob { 50% { transform: translateY(-8px); } }
+@keyframes hurt-edge { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+@keyframes tap { 0% { transform: scale(1); } 35% { transform: scale(1.18) rotate(-10deg); } 100% { transform: scale(1); } }
+@keyframes burst { 0% { transform: translate(0, 0) scale(1); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; } }
+@keyframes ring-out { 0% { transform: scale(0.6); opacity: 0.9; } 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes toast { 0% { opacity: 0; transform: translateY(-14px) scale(0.96); } 8%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-8px); visibility: hidden; } }
+@keyframes glow-pulse { 50% { box-shadow: 0 0 22px 2px rgba(227, 195, 123, 0.55); } }
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+@keyframes title-in { 0% { opacity: 0; letter-spacing: 0.6em; filter: blur(6px); } 100% { opacity: 1; letter-spacing: 0.12em; filter: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; animation-iteration-count: 1 !important; }
 }

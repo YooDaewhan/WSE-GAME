@@ -30,6 +30,7 @@ export interface Combat {
   defBuffUntil: number; myMShield: { amt: number; until: number } | null;
   log: string[]; end?: "승리" | "패배" | "도주" | "시간 종료"; limit?: number; hunt?: boolean;
   auto: boolean; pActs: number; mActs: number;
+  fx?: Fx[]; fxN?: number; // 화면 연출용 이벤트(판정에는 쓰지 않음)
 }
 export interface Listing { id: string; seller: string; price: number; batch?: Batch; equip?: Equip }
 export interface Order {
@@ -57,7 +58,8 @@ export interface State {
   };
   combat: Combat | null; workBuff: { name: string; until: number } | null;
   traitCap: Record<string, number>; forceNight: boolean | null;
-  log: string[]; lastSeen: number;
+  log: string[]; lastSeen: number; logN?: number;
+  gain?: { id: number; text: string; q?: number } | null; // 최근 작업 결과(연출용)
   stats: { mined: number; crafted: number; kills: number; trades: number; lessons: number };
 }
 
@@ -153,7 +155,13 @@ export function newEquip(def: string, q: number, maker?: string, makerName?: str
   };
 }
 const playerTool = (s: State, def: string) => s.equips.find((e) => e.def === def && !isBroken(e));
-export const log = (s: State, msg: string) => { s.log = [msg, ...s.log].slice(0, 40); };
+export const log = (s: State, msg: string) => { s.log = [msg, ...s.log].slice(0, 40); s.logN = (s.logN ?? 0) + 1; };
+export interface Fx { id: number; to: "mob" | "me"; text: string; kind: "hit" | "crit" | "fire" | "miss" | "heal" | "buff" | "poison" | "block" }
+function fx(c: Combat, to: Fx["to"], text: string, kind: Fx["kind"]) {
+  c.fxN = (c.fxN ?? 0) + 1;
+  c.fx = [...(c.fx ?? []), { id: c.fxN, to, text, kind }].slice(-10);
+}
+const setGain = (s: State, text: string, q?: number) => { s.gain = { id: (s.gain?.id ?? 0) + 1, text, q }; };
 export function ledger(s: State, delta: number, text: string, now: number) {
   s.gold += delta;
   s.ledger = [{ at: now, text, delta }, ...s.ledger].slice(0, 100);
@@ -392,6 +400,7 @@ function completeCycle(s: State, w: Work): string | null {
     const eff = masteryEffect(indivLv(s, w.target));
     const n = 1 + (Math.random() < eff.extra / 100 ? 1 : 0); // 추가 획득은 기본 보상 1개당 1회
     give(s, { def: g.out, qty: n, q: 1 });
+    setGain(s, `+${n} ${ITEMS[g.out].name}`);
     if (g.rare && Math.random() < g.rare.p) { give(s, { def: g.rare.id, qty: 1, q: 1 }); log(s, `희귀 발견! ${ITEMS[g.rare.id].name}`); }
     if (g.field === "mining") s.stats.mined += n;
     addXp(s, w.target, g.field, g.sec);
@@ -414,6 +423,7 @@ function completeCycle(s: State, w: Work): string | null {
     if (src.length) e.history.push(`재료 출처: ${[...new Set(src)].join(", ")}`);
     s.equips.push(e);
   } else give(s, { def: r.out, qty: r.qty, q, maker: PLAYER.id, makerName: PLAYER.name });
+  setGain(s, `${out.name}${r.qty > 1 ? ` ×${r.qty}` : ""}`, q);
   w.reserved = null;
   s.stats.crafted++;
   addXp(s, w.target, r.field, def.sec);
@@ -578,7 +588,7 @@ export function combatTick(s: State, dt: number, now: number, r: () => number = 
     c.poison = { until: c.t + 10 * SEC, next: c.t + 2 * SEC }; say(`${m.name}의 독안개! 중독 (10초)`);
   }
   if (c.poison) {
-    while (c.poison.next <= c.t && c.poison.next <= c.poison.until) { s.hp -= 2; c.poison.next += 2 * SEC; say("중독 피해 2"); }
+    while (c.poison.next <= c.t && c.poison.next <= c.poison.until) { s.hp -= 2; c.poison.next += 2 * SEC; say("중독 피해 2"); fx(c, "me", "-2", "poison"); }
     if (c.t >= c.poison.until) c.poison = null;
   }
   // 행동 게이지: 공격속도 × 경과시간 / 기준 턴. 소수 보존.
@@ -596,6 +606,7 @@ export function combatTick(s: State, dt: number, now: number, r: () => number = 
         const dmg = mitigate(m.atk, def);
         s.hp -= dmg;
         say(dmg ? `${m.name}의 공격: 피해 ${+dmg.toFixed(1)}` : `${m.name}의 공격: 막힘`);
+        fx(c, "me", dmg ? `-${+dmg.toFixed(1)}` : "막힘", dmg ? "hit" : "block");
       }
     }
     if (c.mobHp <= 0 || s.hp <= 0) break;
@@ -634,14 +645,15 @@ function playerAct(s: State, c: Combat, b: ReturnType<typeof build>, say: (x: st
         const sh = shieldAbsorb(D, c.mShield);
         c.mShield -= sh.shieldLoss; c.mobHp -= sh.hp;
         say(`${sp.name}! 화염 마법 피해 ${+D.toFixed(1)}${crit ? " (치명타)" : ""}`);
+        fx(c, "mob", `${sp.name} ${+D.toFixed(1)}`, crit ? "crit" : "fire");
       }
-      if (sp.heal) { s.hp = Math.min(b.maxHp, s.hp + sp.heal); say(`${sp.name}: HP +${sp.heal}`); }
-      if (sp.defBuff) { c.defBuffUntil = c.t + 10 * SEC; say(`${sp.name}: 방어 +4 (10초)`); }
-      if (sp.mShield) { c.myMShield = { amt: sp.mShield, until: c.t + 15 * SEC }; say(`${sp.name}: 마법 방어막 15`); }
+      if (sp.heal) { s.hp = Math.min(b.maxHp, s.hp + sp.heal); say(`${sp.name}: HP +${sp.heal}`); fx(c, "me", `+${sp.heal}`, "heal"); }
+      if (sp.defBuff) { c.defBuffUntil = c.t + 10 * SEC; say(`${sp.name}: 방어 +4 (10초)`); fx(c, "me", "방어 +4", "buff"); }
+      if (sp.mShield) { c.myMShield = { amt: sp.mShield, until: c.t + 15 * SEC }; say(`${sp.name}: 마법 방어막 15`); fx(c, "me", "마법 방어막", "buff"); }
       return;
     }
   }
-  if (r() >= b.hit) return say("기본 공격: 빗나감");
+  if (r() >= b.hit) { fx(c, "mob", "MISS", "miss"); return say("기본 공격: 빗나감"); }
   // 물리 성분
   const crit = r() < b.crit;
   const odd = b.odd && Math.floor(c.mobHp) % 2 === 1 ? b.odd : 0; // 피해 직전 HP로 1회 판정
@@ -661,6 +673,8 @@ function playerAct(s: State, c: Combat, b: ReturnType<typeof build>, say: (x: st
   if (fD) parts.push(`화염 ${+fD.toFixed(1)}`);
   if (ps.shieldLoss) parts.push(`방어막 -${+ps.shieldLoss.toFixed(1)}`);
   say(`기본 공격: ${pD + fD ? parts.join(" + ") : "막힘"}`);
+  fx(c, "mob", pD ? `${+pD.toFixed(1)}` : "막힘", pD ? (crit ? "crit" : "hit") : "block");
+  if (fD) fx(c, "mob", `🔥${+fD.toFixed(1)}`, "fire");
 }
 function recordHunt(s: State, c: Combat) {
   const res: HuntResult = { killed: c.mobHp <= 0, timeLeft: Math.max(0, (c.limit ?? 0) - c.t), bossHp: Math.max(0, Math.ceil(c.mobHp)) };

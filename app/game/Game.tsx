@@ -24,44 +24,88 @@ const n1 = (v: number) => +v.toFixed(1);
 // ───────── 공통 UI ─────────
 function Panel({ title, children, right }: { title?: ReactNode; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="rounded-xl border border-line bg-panel p-4">
-      {title && <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-semibold">{title}</h2>{right}</div>}
+    <section className="frame p-4">
+      {title && (
+        <>
+          <div className="mb-2 flex items-center justify-between gap-2"><h2 className="title-solid text-[15px] font-bold">{title}</h2>{right}</div>
+          <div className="divider mb-3" />
+        </>
+      )}
       {children}
     </section>
   );
 }
 function Btn({ children, onClick, disabled, kind = "base", title }: { children: ReactNode; onClick?: () => void; disabled?: boolean; kind?: "base" | "gold" | "ghost"; title?: string }) {
-  const k = kind === "gold" ? "border-gold bg-gold/15 text-gold hover:bg-gold/25" : kind === "ghost" ? "border-transparent text-sub hover:text-ink" : "border-line bg-raised hover:border-sub";
+  const k = kind === "gold" ? "btn btn-gold" : kind === "ghost" ? "border border-transparent text-sub hover:text-ink transition-colors" : "btn";
   return (
     <button type="button" title={title} onClick={onClick} disabled={disabled}
-      className={`min-h-9 rounded-lg border px-3 text-sm transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${k}`}>
-      {children}
+      className={`min-h-9 rounded-[4px] px-3 text-sm disabled:cursor-not-allowed disabled:opacity-35 disabled:saturate-0 ${k}`}>
+      <span className="relative">{children}</span>
     </button>
   );
 }
 function QTag({ q }: { q: number }) {
-  return <span className={`rounded border px-1 text-[11px] leading-4 ${Q_STYLE[q]}`}>{QUALITY[q]}</span>;
+  return <span className={`rounded-sm border px-1 text-[11px] leading-4 ${Q_STYLE[q]}`}>{QUALITY[q]}</span>;
 }
-function Icon({ def, q }: { def: string; q?: number }) {
+function Icon({ def, q, big }: { def: string; q?: number; big?: boolean }) {
   return (
-    <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-raised text-lg" aria-hidden>
-      {ITEMS[def].icon}
-      {q !== undefined && <span className={`absolute -bottom-1 -right-1 rounded border bg-panel px-0.5 text-[9px] leading-3 ${Q_STYLE[q]}`}>{QUALITY[q][0]}</span>}
+    <span className={`slot ${q !== undefined ? `q${q}` : ""} relative inline-flex shrink-0 items-center justify-center rounded-[5px] ${big ? "h-14 w-14 text-3xl" : "h-9 w-9 text-lg"}`} aria-hidden>
+      <span className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">{ITEMS[def].icon}</span>
+      {q !== undefined && <span className={`absolute -bottom-1 -right-1 rounded-sm border bg-bg px-0.5 text-[9px] leading-3 ${Q_STYLE[q]}`}>{QUALITY[q][0]}</span>}
     </span>
   );
 }
-function Bar({ v, max, color = "bg-gold", label }: { v: number; max: number; color?: string; label?: string }) {
+// 앞 막대는 즉시, 뒤 잔상 막대는 늦게 줄어드는 MMO식 게이지
+function Bar({ v, max, color = "bg-gradient-to-r from-amber-700 to-gold", label, h = "h-2" }: { v: number; max: number; color?: string; label?: string; h?: string }) {
+  const pct = Math.max(0, Math.min(100, (v / max) * 100));
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-raised" role="progressbar" aria-label={label} aria-valuenow={Math.round(v)} aria-valuemax={Math.round(max)}>
-      <div className={`h-full ${color} transition-[width] duration-200 motion-reduce:transition-none`} style={{ width: `${Math.max(0, Math.min(100, (v / max) * 100))}%` }} />
+    <div className={`bar-track relative ${h} w-full overflow-hidden rounded-[2px]`} role="progressbar" aria-label={label} aria-valuenow={Math.round(v)} aria-valuemax={Math.round(max)}>
+      <div className="absolute inset-y-0 left-0 bg-white/40 transition-[width] delay-300 duration-700 ease-out" style={{ width: `${pct}%` }} />
+      <div className={`bar-fill absolute inset-y-0 left-0 ${color} transition-[width] duration-200 ease-out`} style={{ width: `${pct}%` }} />
     </div>
   );
 }
 function Demo({ children = "데모" }: { children?: ReactNode }) {
-  return <span className="rounded bg-violet-500/20 px-1.5 text-[11px] text-violet-300">{children}</span>;
+  return <span className="rounded-sm border border-violet-400/30 bg-violet-500/15 px-1.5 text-[11px] text-violet-300">{children}</span>;
 }
 function Unavailable({ children }: { children: ReactNode }) {
-  return <div className="rounded-lg border border-dashed border-line p-3 text-sm text-sub">🔒 {children} <span className="text-xs">(미구현 · 사용 불가)</span></div>;
+  return <div className="rounded border border-dashed border-line bg-black/20 p-3 text-sm text-sub">🔒 {children} <span className="text-xs">(미구현 · 사용 불가)</span></div>;
+}
+
+// ───────── 배경 장면 ─────────
+type Theme = { sky: string; ridge: [string, string]; mote: string; motes: number };
+const THEMES: Record<string, Theme> = {
+  town: { sky: "linear-gradient(180deg,#1b1f3d 0%,#4a3157 38%,#c0704a 62%,#f2b15e 70%,#1a1420 71%)", ridge: ["#1e1830", "#120e1c"], mote: "#ffd48a", motes: 22 },
+  work: { sky: "radial-gradient(ellipse at 50% 85%,#7a3a12 0%,#2a1410 35%,#0b0a10 70%)", ridge: ["#1a120e", "#0d0907"], mote: "#ff9a3c", motes: 30 },
+  farm: { sky: "linear-gradient(180deg,#5d8fc9 0%,#a8c9e0 45%,#f0d79c 66%,#24301c 67%)", ridge: ["#2d4a2a", "#1a2c18"], mote: "#fff7c2", motes: 14 },
+  hunt: { sky: "linear-gradient(180deg,#0b1a17 0%,#143229 45%,#1f4a36 64%,#06100d 65%)", ridge: ["#0e241c", "#061210"], mote: "#9dffb5", motes: 26 },
+  school: { sky: "linear-gradient(180deg,#120f2e 0%,#2d2462 50%,#6a4fb0 66%,#120f22 67%)", ridge: ["#1a1538", "#0e0b20"], mote: "#b9a6ff", motes: 24 },
+  market: { sky: "linear-gradient(180deg,#24180f 0%,#5e3b1f 45%,#d68a3c 64%,#1c130c 65%)", ridge: ["#2a1d12", "#160f09"], mote: "#ffcf7a", motes: 16 },
+  guild: { sky: "linear-gradient(180deg,#0f1424 0%,#2a2a48 50%,#7a2f2f 66%,#120c12 67%)", ridge: ["#1b1626", "#0d0a12"], mote: "#ff8a6a", motes: 20 },
+  night: { sky: "linear-gradient(180deg,#02030a 0%,#0a1230 50%,#1c2a52 66%,#05060c 67%)", ridge: ["#0b1020", "#05070f"], mote: "#cfe2ff", motes: 28 },
+};
+const SCENE_OF: Partial<Record<Screen, string>> = { town: "town", work: "work", farm: "farm", hunt: "hunt", school: "school", market: "market", artisan: "market", guild: "guild", bank: "market" };
+const rnd = (i: number, k: number) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); }; // 결정적 의사난수
+function Scene({ screen, night }: { screen: Screen; night: boolean }) {
+  const key = night && screen !== "work" ? "night" : SCENE_OF[screen] ?? "night";
+  const t = THEMES[key];
+  return (
+    <div className="scene" style={{ background: t.sky }} aria-hidden>
+      {key === "night" && Array.from({ length: 40 }, (_, i) => (
+        <span key={`st${i}`} className="absolute rounded-full bg-white" style={{ left: `${rnd(i, 1) * 100}%`, top: `${rnd(i, 2) * 55}%`, width: 2, height: 2, opacity: 0.3 + rnd(i, 3) * 0.7, animation: `glow-pulse ${2 + rnd(i, 4) * 3}s ease-in-out infinite` }} />
+      ))}
+      <svg className="ridge h-[46%] w-[110%]" viewBox="0 0 1200 400" preserveAspectRatio="none">
+        <path d="M0 230 L120 150 L230 210 L360 90 L470 190 L600 120 L720 200 L860 70 L990 180 L1100 130 L1200 190 L1200 400 L0 400Z" fill={t.ridge[0]} opacity="0.9" />
+        <path d="M0 300 L150 240 L300 290 L420 230 L560 300 L700 250 L840 310 L980 240 L1120 300 L1200 270 L1200 400 L0 400Z" fill={t.ridge[1]} />
+      </svg>
+      <div className="fog" />
+      {Array.from({ length: t.motes }, (_, i) => {
+        const size = 2 + rnd(i, 5) * 4;
+        return <span key={`${key}${i}`} className="mote" style={{ left: `${rnd(i, 6) * 100}%`, bottom: `${-5 - rnd(i, 7) * 10}%`, width: size, height: size, background: t.mote, boxShadow: `0 0 ${size * 3}px ${t.mote}`, animationDuration: `${9 + rnd(i, 8) * 14}s`, animationDelay: `${-rnd(i, 9) * 20}s` }} />;
+      })}
+      <div className="vignette" />
+    </div>
+  );
 }
 const makerLabel = (def: string, name?: string) => {
   if (!name) return null;
@@ -154,63 +198,72 @@ export default function Game() {
   const act: Act = (fn) => setS((p) => { if (!p) return p; const d = structuredClone(p); fn(d, Date.now()); return d; });
   const go: Go = (x) => { setScreen(x); window.scrollTo({ top: 0 }); };
 
-  if (!s) return <div className="flex min-h-screen items-center justify-center text-sub">마을로 가는 중… (불러오는 중)</div>;
+  if (!s) return <Loading />;
   const b = L.build(s, now);
   const clock = L.gameClock(s, now);
+  const goWork = (tab: string) => { setWorkTab(tab); go("work"); };
 
   return (
-    <div className="min-h-screen pb-20 md:pb-0">
-      {/* 상단 상태 */}
-      <header className="sticky top-0 z-20 border-b border-line bg-bg/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-sm">
-          <div className="flex items-center gap-2 font-semibold"><span className="text-gold">MCM</span> 마을 경제 RPG <Demo>데모 · 로컬 저장</Demo></div>
-          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span title="골드">🪙 <b className="text-gold">{s.gold.toLocaleString()}</b></span>
-            <Stat label="HP" v={s.hp} max={b.maxHp} color="bg-red-500" />
-            <Stat label="MP" v={s.mp} max={b.maxMp} color="bg-sky-500" />
-            <Stat label="포만감" v={s.satiety} max={100} color="bg-amber-500" />
-            <span className="text-sub" title={`다음 전환까지 ${L.fmtMs(clock.nextSwitch)}`}>{clock.night ? "🌙 밤" : "☀️ 낮"} · {clock.season} <span className="hidden lg:inline">({L.fmtMs(clock.nextSwitch)} 후 전환)</span></span>
+    <div className="relative min-h-screen pb-24 md:pb-6">
+      <Scene screen={screen} night={clock.night} />
+      <Toasts s={s} />
+      {/* HUD 상단 */}
+      <header className="sticky top-0 z-30 bg-gradient-to-b from-black/80 via-black/50 to-transparent pb-3">
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-3 pt-2">
+          <Portrait s={s} maxHp={b.maxHp} maxMp={b.maxMp} onClick={() => go("char")} />
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-sm">
             {s.work && (
-              <button className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-gold" onClick={() => go("work")}>
-                {s.work.paused ? "⏸" : "▶"} {L.workDef(s.work).name} {Math.floor(s.work.progress * 100)}%
+              <button onClick={() => go("work")} className="frame flex items-center gap-2 px-3 py-1.5 text-xs transition hover:brightness-125">
+                <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full" style={{ background: `conic-gradient(var(--color-gold) ${s.work.progress * 360}deg, #1a2030 0)` }}>
+                  <span className="h-3.5 w-3.5 rounded-full bg-bg" />
+                </span>
+                <span className="max-w-32 truncate">{s.work.paused ? "일시정지 · " : ""}{L.workDef(s.work).name}</span>
               </button>
             )}
-            {s.combat && !s.combat.end && <button className="rounded-md border border-red-500/60 px-2 py-0.5 text-xs" onClick={() => go("hunt")}>⚔️ 전투 중</button>}
+            {s.combat && !s.combat.end && (
+              <button onClick={() => go("hunt")} className="frame animate-[glow-pulse_1.4s_ease-in-out_infinite] px-3 py-1.5 text-xs text-red-300">⚔️ 전투 중</button>
+            )}
+            <span className="frame flex items-center gap-1.5 px-3 py-1.5" title="골드">
+              <span className="inline-block h-4 w-4 rounded-full bg-gradient-to-br from-yellow-200 via-amber-400 to-amber-700 shadow-[0_0_8px_rgba(255,200,80,0.7)]" />
+              <b className="tabular-nums text-gold">{s.gold.toLocaleString()}</b>
+            </span>
+            <Clock night={clock.night} season={clock.season} next={clock.nextSwitch} />
           </div>
         </div>
       </header>
 
       {otherTab && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
-          <div className="max-w-sm rounded-xl border border-line bg-panel p-5 text-center">
-            <p className="mb-2 font-semibold">다른 탭에서 게임이 진행 중입니다</p>
-            <p className="mb-4 text-sm text-sub">진행이 중복되지 않도록 이 탭은 멈춰 있습니다. 다른 탭을 닫으면 자동으로 이어집니다.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="frame max-w-sm p-6 text-center">
+            <p className="frame-title mb-2 text-lg">다른 탭에서 접속 중</p>
+            <p className="text-sm text-sub">진행이 중복되지 않도록 이 탭은 멈춰 있습니다. 다른 탭을 닫으면 자동으로 이어집니다.</p>
           </div>
         </div>
       )}
 
-      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 md:grid-cols-[180px_1fr] xl:grid-cols-[180px_1fr_300px]">
+      <div className="mx-auto grid max-w-[1400px] gap-4 px-3 md:grid-cols-[76px_1fr] xl:grid-cols-[76px_1fr_300px]">
         <nav className="hidden md:block" aria-label="이동">
-          <ul className="sticky top-16 space-y-1">
+          <ul className="sticky top-24 space-y-1.5">
             {NAV.map(([k, label, icon]) => (
               <li key={k}>
-                <button onClick={() => go(k)} aria-current={screen === k ? "page" : undefined}
-                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 ${screen === k ? "bg-gold/15 text-gold" : "text-sub hover:bg-raised hover:text-ink"}`}>
-                  <span aria-hidden>{icon}</span>{label}
+                <button onClick={() => go(k)} aria-current={screen === k ? "page" : undefined} title={label}
+                  className={`group relative flex w-full flex-col items-center gap-0.5 rounded-md border py-1.5 text-[10px] transition-all duration-200 ${screen === k ? "border-gold/70 bg-gradient-to-b from-gold/25 to-gold/5 text-gold shadow-[0_0_16px_-4px_rgba(227,195,123,0.8)]" : "border-white/5 bg-black/40 text-sub hover:-translate-y-0.5 hover:border-mana/50 hover:text-ink"}`}>
+                  <span className="text-xl transition-transform duration-200 group-hover:scale-110" aria-hidden>{icon}</span>{label}
                 </button>
               </li>
             ))}
           </ul>
         </nav>
 
-        <main className="min-w-0 space-y-4">
+        <main key={screen} className="min-w-0 space-y-4 animate-[screen-in_260ms_ease-out]">
+          <ScreenTitle screen={screen} />
           {summary && (
-            <div className="flex items-start justify-between gap-3 rounded-xl border border-gold/50 bg-gold/10 p-3 text-sm">
-              <div><b>복귀 요약</b> · {summary}</div>
+            <div className="frame flex items-start justify-between gap-3 border-gold/60 p-3 text-sm animate-[pop-in_400ms_ease-out]">
+              <div><b className="text-gold">복귀 요약</b> · {summary}</div>
               <Btn kind="ghost" onClick={() => setSummary(null)}>닫기</Btn>
             </div>
           )}
-          {screen === "town" && <Town s={s} act={act} go={go} />}
+          {screen === "town" && <Town s={s} act={act} go={go} goWork={goWork} />}
           {screen === "work" && <WorkScreen s={s} now={now} act={act} go={go} tab={workTab} setTab={setWorkTab} returnRecipe={returnRecipe} setReturnRecipe={setReturnRecipe} />}
           {screen === "farm" && <Farm s={s} now={now} act={act} />}
           {screen === "hunt" && <Hunt s={s} now={now} act={act} />}
@@ -224,27 +277,31 @@ export default function Game() {
           {screen === "bank" && <Bank s={s} act={act} />}
           {screen === "records" && <Records s={s} />}
           {screen === "dev" && <Dev act={act} go={go} />}
-          <div className="xl:hidden"><ActivityLog s={s} /></div>
+          <div className="space-y-4 xl:hidden"><QuestTracker s={s} go={go} goWork={goWork} /><ActivityLog s={s} /></div>
         </main>
 
         <aside className="hidden space-y-4 xl:block">
-          <ActivityLog s={s} />
-          <Chat open onToggle={() => {}} />
+          <div className="sticky top-24 space-y-4">
+            <QuestTracker s={s} go={go} goWork={goWork} />
+            <ActivityLog s={s} />
+            <Chat open onToggle={() => {}} />
+          </div>
         </aside>
       </div>
 
       {/* 모바일 하단 탐색 + 접는 채팅 */}
-      <div className="fixed bottom-16 right-3 z-30 xl:hidden">
-        {chatOpen && <div className="mb-2 w-[min(92vw,340px)]"><Chat open onToggle={() => setChatOpen(false)} /></div>}
-        <button className="ml-auto block rounded-full border border-line bg-panel px-3 py-2 text-sm shadow md:hidden" onClick={() => setChatOpen(!chatOpen)} aria-expanded={chatOpen}>💬 지역 채팅</button>
+      <div className="fixed bottom-20 right-3 z-30 xl:hidden">
+        {chatOpen && <div className="mb-2 w-[min(92vw,340px)] animate-[pop-in_220ms_ease-out]"><Chat open onToggle={() => setChatOpen(false)} /></div>}
+        <button className="btn ml-auto block rounded-full px-3 py-2 text-sm" onClick={() => setChatOpen(!chatOpen)} aria-expanded={chatOpen}>💬 지역 채팅</button>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-bg md:hidden" aria-label="주요 이동">
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-gold/30 bg-gradient-to-t from-black to-black/85 backdrop-blur md:hidden" aria-label="주요 이동">
         {MOBILE_NAV.map((k) => {
           const [, label, icon] = NAV.find((x) => x[0] === k)!;
           return (
             <button key={k} onClick={() => go(k)} aria-current={screen === k ? "page" : undefined}
-              className={`flex min-h-14 flex-col items-center justify-center text-xs ${screen === k ? "text-gold" : "text-sub"}`}>
-              <span className="text-lg" aria-hidden>{icon}</span>{label}
+              className={`relative flex min-h-16 flex-col items-center justify-center text-xs transition-colors ${screen === k ? "text-gold" : "text-sub"}`}>
+              {screen === k && <span className="absolute inset-x-4 top-0 h-0.5 bg-gold shadow-[0_0_10px_var(--color-gold)]" />}
+              <span className={`text-xl transition-transform duration-200 ${screen === k ? "scale-110 drop-shadow-[0_0_8px_rgba(227,195,123,0.8)]" : ""}`} aria-hidden>{icon}</span>{label}
             </button>
           );
         })}
@@ -252,20 +309,123 @@ export default function Game() {
     </div>
   );
 }
-function Stat({ label, v, max, color }: { label: string; v: number; max: number; color: string }) {
+
+// ───────── HUD 부품 ─────────
+function Loading() {
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="text-xs text-sub">{label}</span>
-      <span className="w-14"><Bar v={v} max={max} color={color} label={label} /></span>
-      <span className="text-xs tabular-nums">{Math.floor(v)}/{Math.floor(max)}</span>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg">
+      <div className="h-14 w-14 rounded-full border-2 border-gold/20 border-t-gold animate-[spin-slow_1s_linear_infinite]" />
+      <p className="frame-title text-2xl animate-[title-in_1.2s_ease-out_both]">MCM 왕국</p>
+      <p className="text-xs text-sub">마을로 가는 중…</p>
+    </div>
+  );
+}
+function Portrait({ s, maxHp, maxMp, onClick }: { s: State; maxHp: number; maxMp: number; onClick: () => void }) {
+  const top = (Object.keys(FIELDS) as Field[]).map((f) => [f, L.fieldLv(s, f)] as const).sort((a, b) => b[1] - a[1])[0];
+  const title = top[1] > 1 ? `${FIELDS[top[0]].replace(" 스킬", "")} Lv.${top[1]}` : "초보 모험가";
+  return (
+    <div className="flex items-center gap-3">
+      <button onClick={onClick} aria-label="캐릭터 정보" className="relative h-16 w-16 shrink-0 rounded-full p-[3px] transition hover:scale-105" style={{ background: "conic-gradient(from 200deg,#fff2c5,#c99a45,#6b4a1c,#c99a45,#fff2c5)" }}>
+        <span className="flex h-full w-full items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_30%,#3a4566,#0b0f19)] text-3xl">🧙</span>
+        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-gold/60 bg-bg px-1.5 text-[10px] text-gold">새벽</span>
+      </button>
+      <div className="w-44 space-y-1 sm:w-56">
+        <div className="flex items-baseline gap-2"><span className="frame-title text-sm">새벽</span><span className="text-[11px] text-sub">{title}</span><Demo>데모</Demo></div>
+        <HudBar label="HP" v={s.hp} max={maxHp} color="bg-gradient-to-r from-red-800 via-red-500 to-rose-400" />
+        <HudBar label="MP" v={s.mp} max={maxMp} color="bg-gradient-to-r from-blue-800 via-sky-500 to-cyan-300" />
+        <HudBar label="포만감" v={s.satiety} max={100} color="bg-gradient-to-r from-amber-800 via-amber-500 to-yellow-300" small />
+      </div>
+    </div>
+  );
+}
+function HudBar({ label, v, max, color, small }: { label: string; v: number; max: number; color: string; small?: boolean }) {
+  return (
+    <div className="relative">
+      <Bar v={v} max={max} color={color} label={label} h={small ? "h-2" : "h-3.5"} />
+      {!small && <span className="absolute inset-0 flex items-center justify-between px-1.5 text-[10px] font-semibold leading-none text-white [text-shadow:0_1px_2px_#000]"><span>{label}</span><span className="tabular-nums">{Math.floor(v)} / {Math.floor(max)}</span></span>}
+    </div>
+  );
+}
+function Clock({ night, season, next }: { night: boolean; season: string; next: number }) {
+  return (
+    <span className="frame flex items-center gap-2 px-2 py-1" title={`다음 전환까지 ${L.fmtMs(next)}`}>
+      <span className={`relative h-8 w-8 overflow-hidden rounded-full border border-gold/40 ${night ? "bg-gradient-to-b from-indigo-950 to-slate-900" : "bg-gradient-to-b from-sky-400 to-amber-200"}`}>
+        <span className="absolute inset-0 flex items-center justify-center text-base animate-[bob_3s_ease-in-out_infinite]">{night ? "🌙" : "☀️"}</span>
+      </span>
+      <span className="leading-tight"><span className="block text-xs">{night ? "밤" : "낮"} · {season}</span><span className="block text-[10px] text-sub">{L.fmtMs(next)} 후 전환</span></span>
     </span>
+  );
+}
+const SCREEN_INFO: Record<Screen, [string, string]> = {
+  town: ["새벽 마을", "MCM 왕국 변경의 작은 마을"], work: ["작업장", "광산 · 낚시터 · 공방"], farm: ["새벽 농장", "4×4 밭과 닭장"],
+  hunt: ["마을 숲", "자동 전투 · 스킬과 포션으로 개입"], char: ["캐릭터", "장비 · 능력치 · 특성"], inv: ["가방", "제작 배치와 제작자 각인"],
+  skills: ["숙련도", "오래 할수록 실제로 능숙해진다"], school: ["왕립 마을 학교", "오늘의 수업 · 스크롤 해석실"], market: ["시장 광장", "거래소 · 왕국 상점"],
+  artisan: ["장인 명부", "공방 등록 · 제작 의뢰"], guild: ["새벽상회", "납품 · 토벌 · 박람회"], bank: ["왕국 은행", "보관함 · 거래 기록"],
+  records: ["업적과 기록", "대표 작품 · 달성"], dev: ["개발 옵션", "빠른 데모용 도구"],
+};
+function ScreenTitle({ screen }: { screen: Screen }) {
+  const [t, sub] = SCREEN_INFO[screen];
+  return (
+    <div className="flex items-end gap-3 pt-1">
+      <h1 className="frame-title text-2xl font-bold [text-shadow:0_2px_12px_rgba(227,195,123,0.25)] animate-[title-in_600ms_ease-out_both] sm:text-3xl">{t}</h1>
+      <span className="pb-1 text-xs text-sub">{sub}</span>
+      <span className="mb-2 h-px flex-1 bg-gradient-to-r from-gold/50 to-transparent" />
+    </div>
+  );
+}
+function Toasts({ s }: { s: State }) {
+  const [base] = useState(() => s.logN ?? 0); // 접속 후 생긴 알림만 띄움
+  const n = s.logN ?? 0, fresh = Math.min(3, n - base);
+  return (
+    <div className="pointer-events-none fixed left-1/2 top-24 z-40 w-[min(92vw,420px)] -translate-x-1/2 space-y-2" aria-hidden>
+      {s.log.slice(0, Math.max(0, fresh)).map((x, i) => (
+        <div key={n - i} className="frame border-gold/50 px-4 py-2 text-center text-sm shadow-[0_0_30px_-8px_rgba(227,195,123,0.6)] animate-[toast_3.6s_ease-out_forwards]">
+          <span className="text-gold">◆</span> {x}
+        </div>
+      ))}
+    </div>
+  );
+}
+// 가이드 퀘스트: 사양 2절의 세로 단면 흐름
+function QuestTracker({ s, go, goWork }: { s: State; go: Go; goWork: (t: string) => void }) {
+  const w = s.equips.find((e) => e.id === s.weapon);
+  const steps: [string, boolean, () => void][] = [
+    ["시작 보급 수령", s.starter, () => go("town")],
+    ["철 원석 채광", s.stats.mined >= 1, () => goWork("채집")],
+    ["철 주괴 제련", (s.runs.recipe_bar_iron ?? 0) >= 1, () => goWork("제련")],
+    ["철검 제작", (s.runs.recipe_iron_sword ?? 0) >= 1, () => goWork("제작")],
+    ["불의 보석 세공", (s.runs.recipe_gem_fire ?? 0) >= 1, () => goWork("세공")],
+    ["무기에 보석 장착", !!w?.gems.some(Boolean), () => go("char")],
+    ["생선구이 요리", (s.runs.recipe_fish ?? 0) >= 1, () => goWork("요리")],
+    ["첫 사냥 승리", s.stats.kills >= 1, () => go("hunt")],
+    ["학교 수업 듣기", s.stats.lessons >= 1, () => go("school")],
+    ["공개 주문 납품", s.orders.some((o) => o.id === "order_public_01" && o.state === "완료"), () => go("artisan")],
+    ["길드 보급 기여", s.guild.myFish + s.guild.myPotion >= 1, () => go("guild")],
+  ];
+  const cur = steps.findIndex((x) => !x[1]);
+  const done = steps.filter((x) => x[1]).length;
+  return (
+    <Panel title="가이드 퀘스트" right={<span className="text-xs text-sub">{done}/{steps.length}</span>}>
+      <Bar v={done} max={steps.length} label="퀘스트 진행" />
+      <ul className="mt-3 space-y-1 text-sm">
+        {steps.map(([name, ok, onGo], i) => (i < cur - 1 || i > cur + 2) && cur !== -1 ? null : (
+          <li key={name}>
+            <button onClick={onGo} className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left transition ${i === cur ? "bg-gold/10 text-ink ring-1 ring-gold/40 animate-[glow-pulse_2.4s_ease-in-out_infinite]" : ok ? "text-sub line-through decoration-gold/50" : "text-sub hover:text-ink"}`}>
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border text-[10px] ${ok ? "border-gold bg-gold text-bg" : i === cur ? "border-gold text-gold" : "border-line"}`}>{ok ? "✓" : i === cur ? "!" : ""}</span>
+              {name}{i === cur && <span className="ml-auto text-[10px] text-gold">이동 ›</span>}
+            </button>
+          </li>
+        ))}
+        {cur === -1 && <li className="text-center text-gold">모든 가이드를 완료했습니다!</li>}
+      </ul>
+    </Panel>
   );
 }
 function ActivityLog({ s }: { s: State }) {
   return (
     <Panel title="알림">
-      <ul className="max-h-60 space-y-1 overflow-y-auto text-xs text-sub" aria-live="polite">
-        {s.log.length ? s.log.slice(0, 15).map((x, i) => <li key={i} className={i === 0 ? "text-ink" : ""}>{x}</li>) : <li>아직 소식이 없습니다.</li>}
+      <ul className="max-h-52 space-y-1 overflow-y-auto text-xs text-sub" aria-live="polite">
+        {s.log.length ? s.log.slice(0, 15).map((x, i) => <li key={`${(s.logN ?? 0) - i}`} className={i === 0 ? "text-ink animate-[pop-in_300ms_ease-out]" : ""}><span className="text-gold/60">›</span> {x}</li>) : <li>아직 소식이 없습니다.</li>}
       </ul>
     </Panel>
   );
@@ -277,63 +437,83 @@ function Chat({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
     <Panel title={<>지역 채팅 <Demo>시드 메시지</Demo></>} right={<button className="text-xs text-sub xl:hidden" onClick={onToggle}>접기</button>}>
       <ul className="mb-2 max-h-40 space-y-1 overflow-y-auto text-xs">
-        {msgs.map((m, i) => <li key={i}><b className="text-gold">{m.who}</b> {m.text}</li>)}
+        {msgs.map((m, i) => <li key={i}><b className="text-mana">[{m.who}]</b> {m.text}</li>)}
       </ul>
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (text.trim()) { setMsgs([...msgs, { who: PLAYER.name, text: text.trim() }]); setText(""); } }}>
         <input value={text} onChange={(e) => setText(e.target.value)} maxLength={100} placeholder="메시지 (100자)" aria-label="채팅 입력"
-          className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-sm" />
+          className="min-w-0 flex-1 rounded border border-line bg-black/40 px-2 py-1 text-sm focus:border-mana/60" />
         <Btn>전송</Btn>
       </form>
     </Panel>
   );
 }
 
-// ───────── 마을 ─────────
-function Town({ s, act, go }: { s: State; act: Act; go: Go }) {
-  const places: [Screen, string, string, string][] = [
-    ["work", "⛏️", "광산", "구리·철 채광, 희귀 보석 원석"], ["work", "🎣", "낚시터", "마을 강에서 붕어 낚시"],
-    ["work", "🔨", "공방", "제련·세공·제작·요리·연금"], ["farm", "🌾", "농장", "4×4 밭과 닭장"],
-    ["hunt", "🌲", "사냥터", "마을 숲 · 슬라임과 늑대"], ["school", "🏫", "학교", "오늘의 수업과 스크롤 해석실"],
-    ["market", "⚖️", "시장", "거래소와 왕국 상점"], ["artisan", "📜", "장인 명부", "공방 등록과 제작 의뢰"],
-    ["guild", "🛡️", "길드", "납품·토벌·박람회"], ["bank", "🏦", "은행", "보관함과 거래 기록"],
-  ];
+// ───────── 마을: 월드맵 ─────────
+const MAP_NODES: [string, string, string, number, number, Screen, string?][] = [
+  ["광산", "⛏️", "구리·철 채광", 14, 26, "work", "채집"], ["학교", "🏫", "수업·스크롤", 50, 15, "school"],
+  ["사냥터", "🌲", "마을 숲", 86, 24, "hunt"], ["공방", "🔨", "제련·제작", 30, 47, "work", "제작"],
+  ["장인 명부", "📜", "공방·의뢰", 44, 33, "artisan"], ["길드", "🛡️", "납품·토벌", 73, 43, "guild"],
+  ["시장", "⚖️", "거래소", 51, 57, "market"], ["은행", "🏦", "보관함", 65, 68, "bank"],
+  ["낚시터", "🎣", "마을 강", 19, 77, "work", "채집"], ["농장", "🌾", "밭·닭장", 84, 77, "farm"],
+];
+function Town({ s, act, go, goWork }: { s: State; act: Act; go: Go; goWork: (t: string) => void }) {
   return (
     <>
       {!s.starter && (
-        <Panel title="환영합니다, 새벽님">
-          <p className="mb-3 text-sm text-sub">MCM 왕국의 작은 마을에 오신 것을 환영합니다. 시작 보급을 받고 광산에서 첫 원석을 캐 보세요.</p>
-          <Btn kind="gold" onClick={() => act((d) => L.claimStarter(d))}>🎁 시작 보급 수령 (철 원석 20 · 수지 3 · 불의 보석 원석 1)</Btn>
-        </Panel>
+        <div className="frame flex flex-col gap-4 border-gold/50 p-5 animate-[pop-in_500ms_ease-out] sm:flex-row sm:items-center">
+          <span className="slot q4 flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-5xl">👑</span>
+          <div className="flex-1">
+            <p className="frame-title text-lg">왕국 보급관</p>
+            <p className="mt-1 text-sm text-ink/90">“새벽님, MCM 왕국에 오신 걸 환영합니다. 이 보급품으로 광산에서 첫 원석을 캐 보세요. 장인은 오래 손을 쓴 사람만이 될 수 있답니다.”</p>
+          </div>
+          <Btn kind="gold" onClick={() => act((d) => L.claimStarter(d))}>🎁 시작 보급 수령</Btn>
+        </div>
       )}
-      {s.work && (
-        <Panel title="진행 중인 작업">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm">{L.workDef(s.work).name} · {s.work.done}{s.work.repeat ? `/${s.work.repeat}` : ""}회 완료</span>
-            <Btn kind="gold" onClick={() => go("work")}>작업으로 복귀</Btn>
+      <section className="frame overflow-hidden p-0">
+        <div className="relative aspect-[3/4] w-full sm:aspect-[16/10]" style={{ background: "radial-gradient(ellipse at 20% 30%,#4b5a34 0,transparent 35%),radial-gradient(ellipse at 80% 20%,#22402c 0,transparent 35%),radial-gradient(ellipse at 70% 80%,#6b6a3a 0,transparent 30%),radial-gradient(ellipse at 50% 50%,#3d4a2b,#1c2416 80%)" }}>
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+            <path d="M-2 70 C 15 66, 22 82, 35 86 S 60 92, 102 88" fill="none" stroke="#3a7fb8" strokeWidth="3.2" opacity="0.8" />
+            <path d="M-2 70 C 15 66, 22 82, 35 86 S 60 92, 102 88" fill="none" stroke="#9fd6ff" strokeWidth="0.6" strokeDasharray="2 3" opacity="0.6"><animate attributeName="stroke-dashoffset" from="0" to="-50" dur="6s" repeatCount="indefinite" /></path>
+            <path d="M14 26 L30 47 L44 33 L50 15 M30 47 L51 57 L73 43 L86 24 M51 57 L65 68 L84 77 M30 47 L19 77" fill="none" stroke="#d7b981" strokeWidth="0.7" strokeDasharray="1.5 1.2" opacity="0.55" />
+          </svg>
+          {/* 떠다니는 구름 그림자 */}
+          <div className="pointer-events-none absolute -left-1/4 top-[10%] h-24 w-72 rounded-full bg-black/25 blur-2xl animate-[drift_30s_linear_infinite_alternate]" />
+          <div className="pointer-events-none absolute left-1/3 top-[55%] h-20 w-60 rounded-full bg-black/20 blur-2xl animate-[drift_45s_linear_infinite_alternate-reverse]" />
+          <div className="absolute left-3 top-3 rounded-sm border border-gold/40 bg-black/60 px-3 py-1 text-xs"><span className="frame-title">새벽 마을</span> <span className="text-sub">· 지도</span></div>
+          <div className="absolute bottom-3 right-3 text-3xl opacity-60 animate-[spin-slow_60s_linear_infinite]" aria-hidden>🧭</div>
+          {MAP_NODES.map(([name, icon, desc, x, y, scr, tab], i) => {
+            const busy = s.work && tab && ((tab === "채집" && s.work.kind === "gather") || (tab === "제작" && s.work.kind === "recipe"));
+            return (
+              <button key={name} onClick={() => (tab ? goWork(tab) : go(scr))} style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${i * 60}ms` }}
+                className="group absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center animate-[pop-in_500ms_ease-out_both]">
+                <span className="relative flex h-11 w-11 items-center justify-center rounded-full border-2 border-gold/70 bg-[radial-gradient(circle_at_40%_30%,#3a3220,#120e08)] text-xl shadow-[0_4px_14px_rgba(0,0,0,0.7)] transition-all duration-200 group-hover:-translate-y-1 group-hover:scale-110 group-hover:border-gold group-hover:shadow-[0_0_22px_rgba(227,195,123,0.8)] sm:h-14 sm:w-14 sm:text-2xl">
+                  {icon}
+                  {busy && <span className="absolute inset-0 rounded-full border-2 border-mana animate-[ring-out_1.4s_ease-out_infinite]" />}
+                </span>
+                <span className="mt-1 whitespace-nowrap rounded-sm bg-black/70 px-1.5 text-[11px] font-semibold text-ink [text-shadow:0_1px_2px_#000] sm:text-xs">{name}</span>
+                <span className="hidden whitespace-nowrap text-[10px] text-sub opacity-0 transition-opacity group-hover:opacity-100 sm:block">{desc}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Panel title="마을 우물">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-sub">맑은 물 무료 수령 (거래 불가) · 보유 {L.count(s, "mat_water")}</span>
+            <Btn onClick={() => act((d) => L.give(d, { def: "mat_water", qty: 10, q: 1 }))}>💧 10개 받기</Btn>
           </div>
         </Panel>
-      )}
-      <Panel title="마을">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          {places.map(([k, icon, name, desc]) => (
-            <button key={name} onClick={() => go(k)} className="rounded-xl border border-line bg-raised p-3 text-left transition-colors duration-150 hover:border-gold">
-              <div className="text-2xl" aria-hidden>{icon}</div>
-              <div className="mt-1 font-medium">{name}</div>
-              <div className="text-xs text-sub">{desc}</div>
-            </button>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="마을 우물">
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-sub">맑은 물은 무료로 받을 수 있습니다 (거래 불가). 보유 {L.count(s, "mat_water")}</span>
-          <Btn onClick={() => act((d) => L.give(d, { def: "mat_water", qty: 10, q: 1 }))}>💧 10개 받기</Btn>
-        </div>
-      </Panel>
-      <Panel title="이번 주 MCM 사건">
-        <p className="text-sm"><b>독안개 토벌 주간</b> — 늪의 군주가 깨어났습니다. 해독 재료와 요리 수요가 늘어납니다. 길드 보급과 토벌 기록이 게시판에 공개됩니다.</p>
-        <p className="mt-1 text-xs text-sub">방송 시청은 필수가 아니며 기간 안에 언제든 참여할 수 있습니다.</p>
-      </Panel>
+        <section className="frame relative overflow-hidden p-4">
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(120,40,160,0.35),rgba(20,120,80,0.25),rgba(120,40,160,0.35))] bg-[length:200%_100%] animate-[drift_12s_linear_infinite_alternate]" />
+          <div className="relative">
+            <p className="text-[11px] tracking-widest text-mana">MCM 사건 · 이번 주</p>
+            <p className="frame-title text-lg">독안개 토벌 주간</p>
+            <p className="text-sm text-ink/90">늪의 군주가 깨어났습니다. 해독 재료와 요리 수요가 늘어납니다.</p>
+            <p className="mt-1 text-xs text-sub">방송 시청은 필수가 아니며 기간 안에 언제든 참여할 수 있습니다.</p>
+          </div>
+        </section>
+      </div>
     </>
   );
 }
@@ -383,17 +563,41 @@ function ActiveWork({ s, now, act }: { s: State; now: number; act: Act }) {
   const tool = w.kind === "gather" ? s.equips.find((e) => e.def === GATHER[w.target].tool && !L.isBroken(e)) : null;
   return (
     <Panel title={<>현재 작업 · {def.name}</>} right={<span className="text-xs text-sub">{w.done}{w.repeat ? `/${w.repeat}` : ""}회 완료</span>}>
-      <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-        <button
-          onClick={() => { act((d, t) => L.clickBoost(d, t)); setPulse((p) => p + 1); }}
-          disabled={w.paused}
-          aria-label={`${ITEMS[out].name} 작업 대상 두드리기: 3초간 작업 속도 +20%`}
-          className="group relative flex aspect-square items-center justify-center rounded-2xl border-2 border-line bg-raised text-6xl transition-transform duration-150 active:scale-95 disabled:opacity-50 motion-reduce:transition-none"
-        >
-          <span key={pulse} className={pulse ? "animate-[tap_180ms_ease-out] motion-reduce:animate-none" : ""}>{ITEMS[out].icon}</span>
-          {sp.boosted && <span className="absolute inset-0 rounded-2xl ring-2 ring-gold" />}
-          <span className="absolute bottom-2 text-xs text-sub">클릭·Enter로 가속</span>
-        </button>
+      <div className="grid gap-5 sm:grid-cols-[220px_1fr]">
+        <div className="relative mx-auto flex w-[220px] flex-col items-center">
+          <button
+            onClick={() => { act((d, t) => L.clickBoost(d, t)); setPulse((p) => p + 1); }}
+            disabled={w.paused}
+            aria-label={`${ITEMS[out].name} 작업 대상 두드리기: 3초간 작업 속도 +20%`}
+            className="group relative flex h-[200px] w-[200px] items-center justify-center rounded-full transition-transform duration-150 active:scale-95 disabled:opacity-50"
+          >
+            {/* 진행 링 */}
+            <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100" aria-hidden>
+              <circle cx="50" cy="50" r="45" fill="none" stroke="#141a28" strokeWidth="6" />
+              <circle cx="50" cy="50" r="45" fill="none" stroke={sp.boosted ? "url(#gb)" : "url(#gg)"} strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={`${w.progress * 282.7} 282.7`} style={{ filter: `drop-shadow(0 0 ${sp.boosted ? 6 : 3}px ${sp.boosted ? "#62d2ff" : "#e3c37b"})` }} />
+              <defs>
+                <linearGradient id="gg"><stop offset="0" stopColor="#a87b2f" /><stop offset="1" stopColor="#ffe9b0" /></linearGradient>
+                <linearGradient id="gb"><stop offset="0" stopColor="#2a7fff" /><stop offset="1" stopColor="#a8f0ff" /></linearGradient>
+              </defs>
+            </svg>
+            <span className={`absolute inset-[18px] rounded-full bg-[radial-gradient(circle_at_40%_30%,#33405e,#0a0d16_75%)] shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] transition-shadow duration-300 ${sp.boosted ? "shadow-[0_0_40px_-4px_#62d2ff,inset_0_0_30px_rgba(0,0,0,0.9)]" : ""}`} />
+            {!w.paused && <span className="absolute inset-[18px] rounded-full border border-gold/20 animate-[ring-out_2.4s_ease-out_infinite]" />}
+            <span key={pulse} className={`relative text-7xl drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)] ${pulse ? "animate-[tap_220ms_ease-out]" : "animate-[bob_2.6s_ease-in-out_infinite]"}`}>{ITEMS[out].icon}</span>
+            {/* 클릭 불꽃 */}
+            {pulse > 0 && Array.from({ length: 10 }, (_, i) => {
+              const a = (i / 10) * Math.PI * 2 + pulse;
+              return <span key={`${pulse}-${i}`} className="absolute left-1/2 top-1/2 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_8px_#ffcf6a] animate-[burst_520ms_ease-out_forwards]" style={{ ["--dx" as string]: `${Math.cos(a) * 90}px`, ["--dy" as string]: `${Math.sin(a) * 90}px` }} />;
+            })}
+            {/* 획득 표시 */}
+            {s.gain && (
+              <span key={s.gain.id} className={`pointer-events-none absolute left-1/2 top-6 whitespace-nowrap text-base font-bold [text-shadow:0_2px_6px_#000] animate-[float-up_1.4s_ease-out_forwards] ${s.gain.q !== undefined ? Q_STYLE[s.gain.q].split(" ")[0] : "text-gold"}`}>
+                {s.gain.text}{s.gain.q !== undefined ? ` · ${QUALITY[s.gain.q]}` : ""}
+              </span>
+            )}
+          </button>
+          <span className={`mt-1 text-xs ${sp.boosted ? "text-mana" : "text-sub"}`}>{sp.boosted ? "⚡ 가속 중 +20%" : "클릭·Enter로 가속"}</span>
+        </div>
         <div className="space-y-2 text-sm">
           <Bar v={w.progress} max={1} label="작업 진행" />
           <div className="flex flex-wrap justify-between gap-2">
@@ -553,76 +757,165 @@ function Farm({ s, now, act }: { s: State; now: number; act: Act }) {
 }
 
 // ───────── 사냥 ─────────
+const FX_STYLE: Record<L.Fx["kind"], string> = {
+  hit: "text-2xl text-white", crit: "text-4xl text-amber-300 [text-shadow:0_0_14px_#ff9d00,0_2px_4px_#000]", fire: "text-2xl text-orange-400 [text-shadow:0_0_10px_#ff4d00,0_2px_4px_#000]",
+  miss: "text-lg italic text-zinc-400", heal: "text-2xl text-emerald-300", buff: "text-base text-cyan-300", poison: "text-xl text-fuchsia-400", block: "text-lg text-slate-300",
+};
 function Hunt({ s, now, act }: { s: State; now: number; act: Act }) {
   const c = s.combat;
   const b = L.build(s, now);
+  const live = !!c && !c.end;
+  const spells = s.school.learned.slice(0, 3);
+  const potions = s.inv.filter((x) => ITEMS[x.def].cat === "potion").slice(0, 2);
+  // 단축키: 1~3 스킬, 4~5 포션, R 도주
+  useEffect(() => {
+    if (!live) return;
+    const on = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      const i = "12345".indexOf(e.key);
+      if (i >= 0 && i < 3 && spells[i]) act((d) => L.queueSpell(d, spells[i]));
+      else if (i >= 3 && potions[i - 3]) act((d, t) => L.eat(d, potions[i - 3].id, t));
+      else if (e.key.toLowerCase() === "r") act((d) => L.flee(d));
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  });
   if (!c || c.end) {
     return (
       <>
-        {c?.end && <Panel title={`전투 결과: ${c.end}`}><ul className="max-h-40 space-y-0.5 overflow-y-auto text-xs text-sub">{c.log.slice(0, 8).map((x, i) => <li key={i}>{x}</li>)}</ul></Panel>}
-        <Panel title="마을 숲">
-          <p className="mb-3 text-xs text-sub">기본 공격은 자동입니다. 스킬·포션으로 개입하세요. 사냥 중에는 생산 작업이 멈추며, 오프라인 사냥은 진행되지 않습니다. 현재 공격력 {n1(b.atk)} · 화염 {b.fire} · 방어 {n1(b.def)} · 공격속도 {n1(b.speed)}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(["mob_slime", "mob_wolf"] as const).map((m) => (
-              <div key={m} className="rounded-lg border border-line bg-raised p-3 text-sm">
-                <div className="font-medium">{MOBS[m].name}</div>
-                <div className="text-xs text-sub">HP {MOBS[m].hp} · 공격 {MOBS[m].atk} · 방어 {MOBS[m].def} · 속도 {MOBS[m].speed}</div>
-                <div className="text-xs text-sub">보상: {ITEMS[MOBS[m].drop].name}, {ITEMS[MOBS[m].heart!].name} 1%</div>
-                <div className="mt-2"><Btn kind="gold" onClick={() => act((d) => L.startCombat(d, m))}>사냥 시작 (자동 반복)</Btn></div>
-              </div>
-            ))}
+        {c?.end && (
+          <div className="frame p-5 text-center animate-[pop-in_400ms_ease-out]">
+            <p className={`frame-title text-4xl font-bold animate-[title-in_700ms_ease-out_both] ${c.end === "패배" ? "!text-red-400 ![background:none]" : ""}`}>{c.end === "승리" ? "VICTORY" : c.end}</p>
+            <ul className="mx-auto mt-2 max-w-md space-y-0.5 text-xs text-sub">{c.log.slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}</ul>
           </div>
-        </Panel>
+        )}
+        <p className="text-xs text-sub">기본 공격은 자동입니다. 스킬·포션으로 개입하세요. 사냥 중에는 생산 작업이 멈추며, 오프라인 사냥은 진행되지 않습니다. · 공격력 {n1(b.atk)} · 화염 {b.fire} · 방어 {n1(b.def)} · 공격속도 ×{n1(b.speed)}</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(["mob_slime", "mob_wolf"] as const).map((m, i) => (
+            <div key={m} className="frame group overflow-hidden p-0 animate-[pop-in_400ms_ease-out_both]" style={{ animationDelay: `${i * 80}ms` }}>
+              <div className="relative flex h-40 items-end justify-center bg-[radial-gradient(ellipse_at_50%_100%,#2c5a3c,#0b1712_70%)]">
+                <span className="absolute bottom-3 h-4 w-28 rounded-full bg-black/60 blur-md" />
+                <span className="relative mb-4 text-7xl drop-shadow-[0_8px_12px_rgba(0,0,0,0.8)] transition-transform duration-300 group-hover:scale-110 animate-[bob_3s_ease-in-out_infinite]">{MOBS[m].icon}</span>
+                <span className="absolute left-3 top-3 rounded-sm bg-black/60 px-2 text-xs text-sub">위험도 {"★".repeat(i + 1)}</span>
+              </div>
+              <div className="p-4">
+                <p className="frame-title text-lg">{MOBS[m].name}</p>
+                <p className="text-xs text-sub">HP {MOBS[m].hp} · 공격 {MOBS[m].atk} · 방어 {MOBS[m].def} · 속도 {MOBS[m].speed}</p>
+                <p className="mb-3 text-xs text-sub">보상: {ITEMS[MOBS[m].drop].name}, {ITEMS[MOBS[m].heart!].name} 1%</p>
+                <Btn kind="gold" onClick={() => act((d) => L.startCombat(d, m))}>⚔️ 사냥 시작 (자동 반복)</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
         <Panel title="다른 사냥터"><ul className="space-y-1 text-sm text-sub"><li>🔒 독안개 늪 — 늪 독거미 · 조건: 탐사 퀘스트</li><li>🔒 수정 동굴 — 수정 골렘·별가루 · 조건: 탐사 퀘스트</li></ul></Panel>
       </>
     );
   }
   const m = MOBS[c.mob];
-  const spells = s.school.learned.slice(0, 3);
-  const potions = s.inv.filter((x) => ITEMS[x.def].cat === "potion");
+  const fxs = c.fx ?? [];
+  const mobHit = [...fxs].reverse().find((f) => f.to === "mob" && f.kind !== "miss");
+  const meHit = [...fxs].reverse().find((f) => f.to === "me" && (f.kind === "hit" || f.kind === "poison"));
   return (
-    <Panel title={<>{c.hunt ? "🛡️ 길드 토벌 · " : ""}{m.name}</>} right={<span className="text-xs text-sub">전투 {(c.t / 1000).toFixed(1)}초{c.limit ? ` / ${c.limit / 1000}초` : ""}</span>}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between"><span>{m.name}</span><span className="tabular-nums">{Math.max(0, Math.ceil(c.mobHp))}/{c.mobMax}</span></div>
-          <Bar v={c.mobHp} max={c.mobMax} color="bg-red-500" label="적 체력" />
-          {(c.pShield > 0 || m.pShield) && <div className="text-xs text-sub">물리 방어막 {n1(c.pShield)}</div>}
-          {(c.mShield > 0 || m.mShield) && <div className="text-xs text-sub">마법 방어막 {n1(c.mShield)}</div>}
-          <div className="text-xs text-sub">행동 게이지</div>
-          <Bar v={c.mG} max={L.GAUGE_FULL} color="bg-zinc-400" label="적 행동 게이지" />
-          {m.boss && <p className="text-xs text-amber-300">행동 예고: 20초마다 전체 중독 (10초간 2초마다 HP 2)</p>}
-        </div>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between"><span>새벽</span><span className="tabular-nums">HP {Math.ceil(s.hp)}/{Math.floor(b.maxHp)} · MP {Math.floor(s.mp)}</span></div>
-          <Bar v={s.hp} max={b.maxHp} color="bg-red-500" label="내 체력" />
-          <div className="text-xs text-sub">행동 게이지 {c.pending ? `· 예약: ${SPELLS[c.pending].name}` : ""}</div>
-          <Bar v={c.pG} max={L.GAUGE_FULL} label="내 행동 게이지" />
-          <div className="text-xs text-sub">
-            {c.poison && "☠️ 중독 · "}{c.defBuffUntil > c.t && "🪨 방어 +4 · "}{c.myMShield && `🌙 마법 방어막 ${c.myMShield.amt} · `}
-            행동 {c.pActs}회 / 적 {c.mActs}회
+    <section className="frame overflow-hidden p-0">
+      <div className="relative h-[330px] overflow-hidden sm:h-[380px]" style={{ background: m.boss ? "radial-gradient(ellipse at 50% 110%,#3d5a2a,#132013 45%,#070b08)" : "radial-gradient(ellipse at 50% 115%,#2e5c3e,#10221a 45%,#060c0a)" }}>
+        {m.boss && <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_60%,rgba(140,255,120,0.12),transparent_60%)] animate-[glow-pulse_3s_ease-in-out_infinite]" />}
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent" />
+        {/* 상단: 적 체력 (보스는 레이드식 대형 바) */}
+        <div className={`absolute left-1/2 top-3 -translate-x-1/2 ${m.boss ? "w-[86%]" : "w-[60%]"} text-center`}>
+          <p className="title-solid text-sm sm:text-base">{c.hunt && "🛡️ 길드 토벌 · "}{m.name}</p>
+          <div className="relative mt-1">
+            <Bar v={c.mobHp} max={c.mobMax} color="bg-gradient-to-r from-red-900 via-red-600 to-orange-400" label="적 체력" h={m.boss ? "h-5" : "h-3.5"} />
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums text-white [text-shadow:0_1px_2px_#000]">{Math.max(0, Math.ceil(c.mobHp)).toLocaleString()} / {c.mobMax.toLocaleString()}</span>
           </div>
+          {(c.pShield > 0 || c.mShield > 0) && <p className="mt-0.5 text-[11px] text-cyan-200">{c.pShield > 0 && `물리 방어막 ${n1(c.pShield)} `}{c.mShield > 0 && `마법 방어막 ${n1(c.mShield)}`}</p>}
+          {m.boss && <p className="mt-0.5 text-[11px] text-amber-300">행동 예고: 20초마다 전체 중독</p>}
         </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {spells.length === 0 && <span className="text-xs text-sub">배운 마법이 없습니다 (학교에서 습득).</span>}
-        {spells.map((id) => {
-          const sp = SPELLS[id], cd = (c.cds[id] ?? 0) - c.t;
-          return <Btn key={id} disabled={s.mp < sp.mp || cd > 0} onClick={() => act((d) => L.queueSpell(d, id))}>✨ {sp.name} (MP {sp.mp}){cd > 0 ? ` ${Math.ceil(cd / 1000)}초` : ""}</Btn>;
-        })}
-        {potions.map((p) => (
-          <Btn key={p.id} disabled={c.potionAt > c.t} onClick={() => act((d, t) => L.eat(d, p.id, t))}>
-            {ITEMS[p.def].icon} {ITEMS[p.def].name} ×{p.qty}{c.potionAt > c.t ? ` (${Math.ceil((c.potionAt - c.t) / 1000)}초)` : ""}
-          </Btn>
+        <span className="absolute right-3 top-3 rounded-sm border border-white/10 bg-black/60 px-2 py-0.5 text-[11px] tabular-nums text-sub">{c.limit ? `⏳ ${Math.max(0, Math.ceil((c.limit - c.t) / 1000))}초` : `⏱ ${(c.t / 1000).toFixed(0)}초`}</span>
+
+        {/* 플레이어 */}
+        <div className="absolute bottom-[14%] left-[16%] flex flex-col items-center sm:left-[22%]">
+          <span className="absolute -bottom-1 h-4 w-24 rounded-full bg-black/60 blur-md" />
+          <div key={`p${c.pActs}`} className="animate-[lunge_420ms_ease-out]">
+            <span className="relative block text-7xl drop-shadow-[0_8px_10px_rgba(0,0,0,0.8)] animate-[bob_2.4s_ease-in-out_infinite] sm:text-8xl">🧙
+              {c.myMShield && <span className="absolute -inset-3 rounded-full border-2 border-indigo-300/70 shadow-[0_0_20px_#8ea0ff] animate-[glow-pulse_1.6s_ease-in-out_infinite]" />}
+              {c.defBuffUntil > c.t && <span className="absolute -inset-2 rounded-full border-2 border-stone-300/60" />}
+            </span>
+          </div>
+          <div className="mt-2 w-28"><Bar v={c.pG} max={L.GAUGE_FULL} color="bg-gradient-to-r from-amber-700 to-gold" label="내 행동 게이지" h="h-1" /></div>
+          {c.pending && <span className="mt-1 rounded-sm bg-mana/20 px-1.5 text-[10px] text-mana">예약: {SPELLS[c.pending].name}</span>}
+        </div>
+
+        {/* 적 */}
+        <div className="absolute bottom-[14%] right-[14%] flex flex-col items-center sm:right-[22%]">
+          <span className="absolute -bottom-1 h-5 w-28 rounded-full bg-black/60 blur-md" />
+          <div key={`m${c.mActs}`} className="animate-[lunge-l_420ms_ease-out]">
+            <span key={`h${mobHit?.id ?? 0}`} className={`relative block ${m.boss ? "text-8xl sm:text-9xl" : "text-7xl sm:text-8xl"} drop-shadow-[0_8px_10px_rgba(0,0,0,0.8)] ${mobHit ? "animate-[shake_300ms_ease-out,flash_220ms_ease-out]" : ""}`}>
+              {m.icon}
+              {c.pShield > 0 && <span className="absolute -inset-3 rounded-full border-2 border-cyan-200/70 shadow-[0_0_24px_#7fe9ff]" />}
+            </span>
+          </div>
+          <div className="mt-2 w-28"><Bar v={c.mG} max={L.GAUGE_FULL} color="bg-gradient-to-r from-zinc-600 to-zinc-300" label="적 행동 게이지" h="h-1" /></div>
+        </div>
+
+        {/* 떠오르는 피해 숫자 */}
+        {fxs.map((f) => (
+          <span key={f.id} className={`pointer-events-none absolute z-10 whitespace-nowrap font-black [text-shadow:0_2px_4px_#000] animate-[float-up_1s_ease-out_forwards] ${FX_STYLE[f.kind]}`}
+            style={{ left: `calc(${f.to === "mob" ? "72%" : "28%"} + ${((f.id * 37) % 50) - 25}px)`, top: `${38 + ((f.id * 13) % 12)}%` }}>
+            {f.kind === "crit" ? `치명! ${f.text}` : f.text}
+          </span>
         ))}
-        <Btn kind="ghost" disabled title="음식은 전투 중 사용할 수 없습니다">🍞 음식 (전투 중 불가)</Btn>
-        {!c.hunt && <Btn onClick={() => act((d) => { if (d.combat) d.combat.auto = !d.combat.auto; })}>{c.auto ? "자동 반복 켬" : "자동 반복 끔"}</Btn>}
-        <Btn onClick={() => act((d) => L.flee(d))}>🏃 도주</Btn>
+        {meHit && <span key={`hurt${meHit.id}`} className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgba(255,0,0,0.65)] animate-[hurt-edge_500ms_ease-out_forwards]" />}
+        {c.poison && <span className="pointer-events-none absolute inset-0 bg-fuchsia-900/15 animate-[glow-pulse_1.2s_ease-in-out_infinite]" />}
       </div>
-      <p className="mt-1 text-xs text-sub">스킬은 다음 행동을 대체합니다 (예약 1개). 포션은 행동을 소비하지 않으며 공용 재사용 10초.</p>
-      <ul className="mt-3 max-h-48 space-y-0.5 overflow-y-auto rounded-lg bg-raised p-2 text-xs text-sub" aria-live="polite">
-        {c.log.map((x, i) => <li key={i} className={i === 0 ? "text-ink" : ""}>{x}</li>)}
-      </ul>
-    </Panel>
+
+      {/* 하단 스킬바 */}
+      <div className="border-t border-gold/20 bg-gradient-to-b from-black/40 to-black/80 p-3">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-end justify-center gap-2">
+          <div className="mr-2 hidden w-40 space-y-1 sm:block">
+            <HudBar label="HP" v={s.hp} max={b.maxHp} color="bg-gradient-to-r from-red-800 via-red-500 to-rose-400" />
+            <HudBar label="MP" v={s.mp} max={b.maxMp} color="bg-gradient-to-r from-blue-800 via-sky-500 to-cyan-300" />
+          </div>
+          {[0, 1, 2].map((i) => {
+            const id = spells[i], sp = id ? SPELLS[id] : null;
+            const cd = id ? Math.max(0, (c.cds[id] ?? 0) - c.t) : 0, ready = !!sp && s.mp >= sp.mp && cd <= 0;
+            return (
+              <SkillSlot key={i} hotkey={String(i + 1)} disabled={!ready} onClick={() => id && act((d) => L.queueSpell(d, id))}
+                icon={sp ? (sp.fire ? "🔥" : sp.heal ? "💚" : sp.defBuff ? "🛡️" : "🌙") : ""} label={sp?.name ?? "빈 슬롯"} sub={sp ? `MP ${sp.mp}` : ""}
+                cdFrac={sp && cd > 0 ? cd / (sp.cd * 1000) : 0} cdText={cd > 0 ? String(Math.ceil(cd / 1000)) : ""} active={c.pending === id && !!id} />
+            );
+          })}
+          <span className="mx-1 h-12 w-px bg-gold/20" />
+          {[0, 1].map((i) => {
+            const p = potions[i], cd = Math.max(0, c.potionAt - c.t);
+            return <SkillSlot key={`p${i}`} hotkey={String(i + 4)} disabled={!p || cd > 0} onClick={() => p && act((d, t) => L.eat(d, p.id, t))}
+              icon={p ? ITEMS[p.def].icon : ""} label={p ? ITEMS[p.def].name : "포션 없음"} sub={p ? `×${p.qty}` : ""} cdFrac={p && cd > 0 ? cd / 10000 : 0} cdText={cd > 0 ? String(Math.ceil(cd / 1000)) : ""} />;
+          })}
+          <SkillSlot hotkey="-" disabled icon="🍞" label="음식 (전투 중 불가)" sub="" cdFrac={0} cdText="" onClick={() => {}} />
+          <SkillSlot hotkey="R" icon="🏃" label="도주" sub="" cdFrac={0} cdText="" onClick={() => act((d) => L.flee(d))} />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] text-sub">
+          {!c.hunt && <button className="underline decoration-dotted hover:text-ink" onClick={() => act((d) => { if (d.combat) d.combat.auto = !d.combat.auto; })}>자동 반복 {c.auto ? "켬" : "끔"}</button>}
+          <span>· 스킬은 다음 행동을 대체(예약 1개) · 포션 공용 재사용 10초 · 행동 {c.pActs} / 적 {c.mActs}</span>
+        </div>
+        <details className="mt-2 text-xs">
+          <summary className="cursor-pointer text-sub">전투 기록</summary>
+          <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto text-sub" aria-live="polite">{c.log.map((x, i) => <li key={i} className={i === 0 ? "text-ink" : ""}>{x}</li>)}</ul>
+        </details>
+      </div>
+    </section>
+  );
+}
+function SkillSlot({ hotkey, icon, label, sub, cdFrac, cdText, disabled, active, onClick }: { hotkey: string; icon: string; label: string; sub: string; cdFrac: number; cdText: string; disabled?: boolean; active?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={label} aria-label={`${label} (단축키 ${hotkey})`}
+      className={`slot group relative flex h-14 w-14 flex-col items-center justify-center rounded-md text-2xl transition-all duration-150 enabled:hover:-translate-y-0.5 enabled:hover:border-mana enabled:hover:shadow-[0_0_14px_-2px_#62d2ff] enabled:active:scale-95 disabled:opacity-60 ${active ? "border-gold shadow-[0_0_16px_-2px_var(--color-gold)]" : ""}`}>
+      <span className="drop-shadow-[0_2px_3px_#000]">{icon}</span>
+      {sub && <span className="absolute bottom-0.5 right-1 text-[9px] text-ink/80">{sub}</span>}
+      <span className="absolute left-1 top-0.5 text-[9px] font-bold text-gold">{hotkey}</span>
+      {cdFrac > 0 && (
+        <span className="absolute inset-0 flex items-center justify-center rounded-md text-base font-bold text-white" style={{ background: `conic-gradient(rgba(0,0,0,0.72) ${cdFrac * 360}deg, transparent 0)` }}>{cdText}</span>
+      )}
+    </button>
   );
 }
 

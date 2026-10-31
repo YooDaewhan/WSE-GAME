@@ -58,7 +58,7 @@ export const ITEMS: Record<string, ItemDef> = {
   crop_wheat: { name: "밀", cat: "crop", price: 2, icon: "🌾" },
   crop_potato: { name: "감자", cat: "crop", price: 3, icon: "🥔" },
   herb_red: { name: "붉은 약초", cat: "crop", price: 6, icon: "🌺" },
-  herb_blue: { name: "푸른 약초", cat: "crop", price: 7, icon: "🪻" },
+  herb_blue: { name: "푸른 약초", cat: "crop", price: 7, icon: "🌷" },
   crop_gold_wheat: { name: "황금 밀", cat: "crop", price: 25, icon: "🌟" },
   herb_silver: { name: "은빛 약초", cat: "crop", price: 35, icon: "🌿" },
   animal_egg: { name: "달걀", cat: "crop", price: 4, icon: "🥚" },
@@ -145,13 +145,13 @@ export const CROPS: Record<string, { name: string; out: string; min: number; per
   seed_blue: { name: "푸른 약초", out: "herb_blue", min: 12, per: 2, variant: "herb_silver" },
 };
 
-export interface MobDef { name: string; hp: number; atk: number; def: number; speed: number; drop: string; heart?: string; poison?: number; pShield?: number; mShield?: number; stunImmune?: boolean; dev?: boolean; boss?: boolean }
+export interface MobDef { name: string; icon: string; hp: number; atk: number; def: number; speed: number; drop: string; heart?: string; poison?: number; pShield?: number; mShield?: number; stunImmune?: boolean; dev?: boolean; boss?: boolean }
 export const MOBS: Record<string, MobDef> = {
-  mob_slime: { name: "숲 슬라임", hp: 25, atk: 3, def: 0, speed: 1, drop: "mat_resin", heart: "heart_plain" },
-  mob_wolf: { name: "회색 늑대", hp: 70, atk: 7, def: 2, speed: 1.2, drop: "mat_fang", heart: "heart_wolf" },
-  boss_marsh: { name: "늪의 군주", hp: 5000, atk: 12, def: 5, speed: 0.75, drop: "", boss: true, poison: 1, stunImmune: true },
-  mob_speed_dummy: { name: "속도 허수아비(개발)", hp: 99999, atk: 1, def: 0, speed: 0.5, drop: "", stunImmune: true, dev: true },
-  mob_shield_dummy: { name: "물리 방어막 허수아비(개발)", hp: 9999, atk: 0, def: 0, speed: 0.5, drop: "", pShield: 100, dev: true },
+  mob_slime: { name: "숲 슬라임", icon: "🦠", hp: 25, atk: 3, def: 0, speed: 1, drop: "mat_resin", heart: "heart_plain" },
+  mob_wolf: { name: "회색 늑대", icon: "🐺", hp: 70, atk: 7, def: 2, speed: 1.2, drop: "mat_fang", heart: "heart_wolf" },
+  boss_marsh: { name: "늪의 군주", icon: "🐊", hp: 5000, atk: 12, def: 5, speed: 0.75, drop: "", boss: true, poison: 1, stunImmune: true },
+  mob_speed_dummy: { name: "속도 허수아비(개발)", icon: "🎯", hp: 99999, atk: 1, def: 0, speed: 0.5, drop: "", stunImmune: true, dev: true },
+  mob_shield_dummy: { name: "물리 방어막 허수아비(개발)", icon: "🛡️", hp: 9999, atk: 0, def: 0, speed: 0.5, drop: "", pShield: 100, dev: true },
 };
 
 export interface SpellDef { name: string; src: "school" | "scroll"; lessons: number; items: [string, number][]; pre?: string; mp: number; cd: number; desc: string; fire?: number; heal?: number; defBuff?: number; mShield?: number }
